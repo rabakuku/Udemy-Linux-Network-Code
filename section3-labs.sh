@@ -34,7 +34,15 @@ PING_TIMEOUT="${S3_PING_TIMEOUT:-1}"
 
 # ===== Constants / Paths / State =====
 LAB_ROOT="/etc/labs-menu"
-STATE_FILE="${LAB_ROOT}/state"                # shared with your Section 2 style
+STATE_FILE="${LAB_ROOT}/state"                # shared style across sections
+
+# Netplan (Section 3) handling
+NETPLAN_DIR="/etc/netplan"
+S3_NETPLAN_STASH="${LAB_ROOT}/section3-netplan-stash"
+S3_NETPLAN_FILE="${NETPLAN_DIR}/10-section3-nm.yaml"
+S3_NETPLAN_STASHED_FLAG="${S3_NETPLAN_STASH}/.stashed"
+
+# NetworkManager connection names (Section 3)
 NM_CONN_V10="s3-vlan10"
 NM_CONN_V20="s3-vlan20"
 NM_CONN_ACC="s3-access"
@@ -74,7 +82,7 @@ primary_if() {
     | grep -v '^lo$' | head -n1
 }
 nm_is_active() { command -v nmcli >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager; }
-nm_require() {
+nm_require_base() {
   if ! command -v nmcli >/dev/null 2>&1; then
     echo -e "${FAIL} NetworkManager (nmcli) not installed. Install: sudo apt-get install -y network-manager"
     exit 2
@@ -85,6 +93,53 @@ nm_require() {
     exit 2
   fi
 }
+write_file() { # write_file <path> <mode> (reads content from stdin)
+  local path="$1" mode="$2"
+  umask 022
+  cat >"$path"
+  chmod "$mode" "$path" || true
+  chown root:root "$path" || true
+}
+
+# ---- Netplan → NetworkManager renderer handling (Section 3) ----
+s3_stash_netplan_once() {
+  # Stash existing netplan YAMLs (first run only) to avoid networkd owning devices
+  mkdir -p "$S3_NETPLAN_STASH"
+  [[ -f "$S3_NETPLAN_STASHED_FLAG" ]] && return 0
+  shopt -s nullglob
+  local moved=0
+  for f in "$NETPLAN_DIR"/*.yaml; do
+    mv -f "$f" "$S3_NETPLAN_STASH"/ && moved=1
+  done
+  if [[ $moved -eq 1 ]]; then
+    echo "stashed" > "$S3_NETPLAN_STASHED_FLAG"
+    echo -e "${INFO} Stashed existing netplan YAMLs to ${S3_NETPLAN_STASH}"
+  fi
+}
+
+s3_ensure_nm_renderer() {
+  # Write a minimal NM renderer YAML and apply it
+  write_file "${S3_NETPLAN_FILE}" 0600 <<'EOF'
+network:
+  version: 2
+  renderer: NetworkManager
+EOF
+  q netplan generate
+  q netplan apply
+}
+
+nm_require_and_ensure_renderer() {
+  nm_require_base
+  # If devices show as unmanaged, or if renderer isn't NM, force NM renderer
+  # Strategy: stash existing YAMLs (once) and write our NM renderer file.
+  s3_stash_netplan_once
+  s3_ensure_nm_renderer
+
+  # Small settle time so NM picks up the devices cleanly
+  sleep 1
+}
+
+# ---- NM device helpers ----
 nm_conn_device() {
   # Usage: nm_conn_device <connection_name>
   local name="$1" dev=""
@@ -93,17 +148,19 @@ nm_conn_device() {
   [[ -z "$dev" ]] && dev="$(primary_if)"
   echo "$dev"
 }
+
 peer_ip() {
   # Usage: peer_ip <role> <s1_ip> <s2_ip> -> returns the other side's IP
   local role="$1" s1="$2" s2="$3"
   if [[ "$role" == "1" ]]; then echo "$s2"; else echo "$s1"; fi
 }
+
 ping_on_iface() {
   # Usage: ping_on_iface <iface> <peer_ip> <label>
   local ifc="$1" peer="$2" lbl="$3"
   if [[ "$PING_PEER" == "1" ]] && command -v ping >/dev/null 2>&1; then
     if ping -I "$ifc" -c "$PING_COUNT" -W "$PING_TIMEOUT" "$peer" >/dev/null 2>&1; then
-      good "Peer reachable (${lbl} -> ${peer})"
+      echo -e "${OK} Peer reachable (${lbl} -> ${peer})"
     else
       echo -e "${WARN} Peer not reachable (${lbl} -> ${peer}); check mode/subnet/cable/VLAN tag)"
     fi
@@ -111,6 +168,8 @@ ping_on_iface() {
     echo -e "${INFO} Skipping ping (${lbl}); enable with S3_PING=1"
   fi
 }
+
+# ---- Check reporting ----
 good() { echo -e "${OK} $*"; }
 miss() { echo -e "${FAIL} $*"; FAILS=$((FAILS+1)); }
 begin_check() { FAILS=0; }
@@ -130,42 +189,45 @@ summary_for_lab() {
     1)
       cat <<EOF
 ${BOLD}Summary — Lab 1 (Create VLAN 10 interface)${NC}
-- Create 'vlan10' (id 10) on the primary NIC.
+- Switch Netplan renderer to NetworkManager (stash previous YAMLs).
+- Create 'vlan10' (id 10) on primary NIC.
 - Assign role-based IPv4: 1 -> ${V10_S1_IP}/${PREFIX}, 2 -> ${V10_S2_IP}/${PREFIX}.
 EOF
       ;;
     2)
       cat <<EOF
 ${BOLD}Summary — Lab 2 (Create VLAN 20 interface)${NC}
-- Create 'vlan20' (id 20) on the primary NIC.
+- Switch Netplan renderer to NetworkManager (stash previous YAMLs).
+- Create 'vlan20' (id 20) on primary NIC.
 - Assign role-based IPv4: 1 -> ${V20_S1_IP}/${PREFIX}, 2 -> ${V20_S2_IP}/${PREFIX}.
 EOF
       ;;
     3)
       cat <<EOF
 ${BOLD}Summary — Lab 3 (Troubleshoot VLAN Interfaces)${NC}
-- Verify 'vlan10'/'vlan20' exist, report correct VLAN IDs (10/20), and have the correct IPv4s.
-- Confirm NetworkManager is managing them and the link is up.
+- Verify 'vlan10'/'vlan20' exist, VLAN IDs are correct (10/20), and IPs match the role.
+- Confirm NetworkManager is managing interfaces and link is up.
 EOF
       ;;
     4)
       cat <<EOF
 ${BOLD}Summary — Lab 4 (Configure Trunk)${NC}
-- Ensure both 'vlan10' and 'vlan20' exist and are active on the same physical NIC.
+- Ensure both 'vlan10' and 'vlan20' exist and are active on the same NIC.
 - Optional peer pings on vlan10 and vlan20 to demonstrate reachability.
 EOF
       ;;
     5)
       cat <<EOF
 ${BOLD}Summary — Lab 5 (Configure Access)${NC}
+- Switch Netplan renderer to NetworkManager (stash previous YAMLs).
 - Configure an UNTAGGED access connection on the base NIC with role-based IPv4.
-- Optional peer ping on untagged (base NIC) to demonstrate reachability.
+- Optional peer ping on untagged to demonstrate reachability.
 EOF
       ;;
     6)
       cat <<EOF
 ${BOLD}Summary — Lab 6 (Troubleshoot Trunk/Access)${NC}
-- Detect whether you're in trunk or access mode and validate expected interfaces and IPs.
+- Detect whether you're in trunk or access mode and validate interfaces/IPs.
 - Optional peer pings per detected mode with clear hints.
 EOF
       ;;
@@ -177,13 +239,12 @@ EOF
 # APPLY FUNCTIONS
 # =========================
 lab1_apply() {
-  nm_require
+  nm_require_and_ensure_renderer
   local role ip ifc
   role="$(get_state role)"; [[ -z "$role" ]] && role="1"
   ip="$V10_S1_IP"; [[ "$role" == "2" ]] && ip="$V10_S2_IP"
   ifc="$(primary_if)"; [[ -z "$ifc" ]] && { echo -e "${FAIL} No primary NIC detected"; exit 2; }
 
-  # Recreate VLAN 10
   q nmcli con delete "${NM_CONN_V10}"
   nmcli con add type vlan ifname vlan10 con-name "${NM_CONN_V10}" dev "${ifc}" id 10 \
     ipv4.addresses "${ip}/${PREFIX}" ipv4.method manual ipv6.method ignore >/dev/null
@@ -191,13 +252,12 @@ lab1_apply() {
 }
 
 lab2_apply() {
-  nm_require
+  nm_require_and_ensure_renderer
   local role ip ifc
   role="$(get_state role)"; [[ -z "$role" ]] && role="1"
   ip="$V20_S1_IP"; [[ "$role" == "2" ]] && ip="$V20_S2_IP"
   ifc="$(primary_if)"; [[ -z "$ifc" ]] && { echo -e "${FAIL} No primary NIC detected"; exit 2; }
 
-  # Recreate VLAN 20
   q nmcli con delete "${NM_CONN_V20}"
   nmcli con add type vlan ifname vlan20 con-name "${NM_CONN_V20}" dev "${ifc}" id 20 \
     ipv4.addresses "${ip}/${PREFIX}" ipv4.method manual ipv6.method ignore >/dev/null
@@ -205,19 +265,19 @@ lab2_apply() {
 }
 
 lab3_apply() {
-  # Troubleshoot lab: no-op apply (we only check). But ensure NM is ready.
-  nm_require
+  # Troubleshoot lab: ensure NM is ready and renderer is NM (no new connections created)
+  nm_require_and_ensure_renderer
 }
 
 lab4_apply() {
-  nm_require
+  nm_require_and_ensure_renderer
   # Trunk: ensure both VLAN connections exist & are up
   lab1_apply
   lab2_apply
 }
 
 lab5_apply() {
-  nm_require
+  nm_require_and_ensure_renderer
   local role ip ifc
   role="$(get_state role)"; [[ -z "$role" ]] && role="1"
   ip="$ACC_S1_IP"; [[ "$role" == "2" ]] && ip="$ACC_S2_IP"
@@ -432,11 +492,10 @@ lab6_check() {
     ip -d link show vlan20 2>/dev/null | grep -q "vlan id 20" && good "vlan20 id OK" || miss "vlan20 id mismatch"
     ip -4 -o addr show dev vlan20 2>/dev/null | grep -q " ${ip20}/" && good "vlan20 has ${ip20}/${PREFIX}" || miss "vlan20 missing ${ip20}/${PREFIX}"
 
-    # Optional peer pings for trunk
     ping_on_iface "vlan10" "$peer10" "TRUNK-vlan10"
     ping_on_iface "vlan20" "$peer20" "TRUNK-vlan20"
 
-    # Mixed-mode advice (if base has untagged IP, warn)
+    # Mixed-mode hint
     if [[ -n "$ifc" ]] && ip -4 -o addr show dev "$ifc" 2>/dev/null | grep -q " ${accip}/"; then
       echo -e "${WARN} Base interface has ${accip}/${PREFIX} while in trunk mode (peer might be in access)."
     fi
@@ -446,10 +505,8 @@ lab6_check() {
     else
       miss "Base interface ${ifc} lacks expected untagged ${accip}/${PREFIX}"
     fi
-    # Optional peer ping for access
     ping_on_iface "$ifc" "$peeracc" "ACCESS-untagged"
 
-    # If VLANs are up, warn (not fail)
     if ip link show vlan10 >/dev/null 2>&1 || ip link show vlan20 >/dev/null 2>&1; then
       echo -e "${WARN} VLAN subinterfaces present while in access mode; ensure peer mode matches."
     fi
@@ -468,10 +525,10 @@ apply_lab() {
   case "$lab" in
     1) lab1_apply ;;
     2) lab2_apply ;;
-    3) lab3_apply ;;   # no-op apply, just ensures NM is available
+    3) lab3_apply ;;   # no-op apply, just ensures NM & renderer
     4) lab4_apply ;;
     5) lab5_apply ;;
-    6) nm_require ;;   # troubleshoot; no changes on apply
+    6) nm_require_and_ensure_renderer ;;   # troubleshoot; no changes on apply
     *) echo -e "${FAIL} Unknown lab $lab"; exit 2 ;;
   esac
   save_state lab "$lab"
@@ -494,11 +551,29 @@ do_check() {
 # =========================
 # RESET / STATUS / LIST
 # =========================
+s3_restore_netplan_if_stashed() {
+  if [[ -f "$S3_NETPLAN_STASHED_FLAG" ]]; then
+    # Remove our NM renderer file
+    rm -f "$S3_NETPLAN_FILE"
+    # Restore stashed YAMLs
+    shopt -s nullglob
+    for f in "$S3_NETPLAN_STASH"/*.yaml; do
+      mv -f "$f" "$NETPLAN_DIR"/
+    done
+    rm -f "$S3_NETPLAN_STASHED_FLAG"
+    rmdir "$S3_NETPLAN_STASH" 2>/dev/null || true
+    q netplan generate
+    q netplan apply
+    echo -e "${INFO} Restored original netplan configuration"
+  fi
+}
+
 reset_all() {
-  nm_require
+  nm_require_base
   q nmcli con delete "${NM_CONN_V10}"
   q nmcli con delete "${NM_CONN_V20}"
   q nmcli con delete "${NM_CONN_ACC}"
+  s3_restore_netplan_if_stashed
   : > "${STATE_FILE}" 2>/dev/null || true
   echo -e "${OK} Reset complete"
 }
@@ -552,8 +627,7 @@ print_solution() {
   case "$lab" in
     1) cat <<'EOS'
 Goal: Create VLAN 10 on primary NIC with static IP (role-based)
-1) Identify primary NIC:
-   ip -o link show
+1) Switch Netplan to NetworkManager (stash any YAMLs), then apply.
 2) Create VLAN 10 via NetworkManager:
    nmcli con delete s3-vlan10
    nmcli con add type vlan ifname vlan10 con-name s3-vlan10 dev <PRIMARY_IF> id 10 \
@@ -566,7 +640,7 @@ EOS
       ;;
     2) cat <<'EOS'
 Goal: Create VLAN 20 on primary NIC with static IP (role-based)
-1) Identify primary NIC
+1) Switch Netplan to NetworkManager (stash any YAMLs), then apply.
 2) Create VLAN 20:
    nmcli con delete s3-vlan20
    nmcli con add type vlan ifname vlan20 con-name s3-vlan20 dev <PRIMARY_IF> id 20 \
@@ -579,19 +653,22 @@ EOS
       ;;
     3) cat <<'EOS'
 Goal: Troubleshoot VLAN Interfaces (vlan10/vlan20)
-1) Confirm NM and connection existence:
+1) Confirm NetworkManager and renderer:
    systemctl is-active NetworkManager
+   grep -R "renderer: *NetworkManager" /etc/netplan/*.yaml
+   netplan get | grep renderer  # optional
+2) Confirm connections:
    nmcli -t -f NAME connection show | grep -x s3-vlan10
    nmcli -t -f NAME connection show | grep -x s3-vlan20
-2) Validate VLAN IDs:
+3) Validate VLAN IDs:
    ip -d link show vlan10 | grep "vlan id 10"
    ip -d link show vlan20 | grep "vlan id 20"
-3) Validate addressing:
+4) Validate addressing:
    ip -4 -o addr show dev vlan10
    ip -4 -o addr show dev vlan20
-4) If activation fails, check for duplicate IPs:
-   arping -D -I <PRIMARY_IF> <IP> -c 3
+5) If activation fails:
    journalctl -u NetworkManager -b -n 200
+   arping -D -I <PRIMARY_IF> <IP> -c 3   # duplicate IP check
 EOS
       ;;
     4) cat <<'EOS'
@@ -611,17 +688,18 @@ EOS
       ;;
     5) cat <<'EOS'
 Goal: Configure an Access (untagged) connection on base NIC
-1) Create untagged connection:
+1) Switch Netplan to NetworkManager (stash any YAMLs), then apply.
+2) Create untagged connection:
    nmcli con delete s3-access
    nmcli con add type ethernet ifname <PRIMARY_IF> con-name s3-access \
      ipv4.addresses <ROLE_IP>/24 ipv4.method manual ipv6.method ignore
    nmcli con up s3-access
-2) Optionally down VLAN connections to avoid ambiguity:
+3) Optionally down VLAN connections to avoid ambiguity:
    nmcli con down s3-vlan10
    nmcli con down s3-vlan20
-3) Verify:
+4) Verify:
    ip -4 addr show dev <PRIMARY_IF>
-4) Optional: ping peer server untagged:
+5) Optional: ping peer server untagged:
    ping -I <PRIMARY_IF> <peer-ip-access>
 EOS
       ;;
@@ -654,12 +732,12 @@ print_tip() {
   echo -e "${BOLD}Tips for Lab ${lab}${NC}"
   echo "----------------------------------------"
   case "$lab" in
-    1) echo "Use 'ip -d link show vlan10' to see VLAN metadata (id, protocol). Keep both servers in 10.10.20.0/24 for VLAN 10 reachability.";;
-    2) echo "Same as Lab 1 for VLAN 20. Verify IDs (20) and addresses in 10.10.20.0/24.";;
-    3) echo "If 'IP address cannot be reserved' appears, check ARP conflicts with 'arping -D -I <if> <ip>' and NM logs with 'journalctl -u NetworkManager -b -n 200'.";;
-    4) echo "Trunk = multiple VLAN subinterfaces on the same physical NIC. Bring both up and ping peers per VLAN to validate.";;
+    1) echo "If you see 'device is unmanaged', ensure netplan renderer is NetworkManager and apply netplan before nmcli.";;
+    2) echo "VLAN ID must match on both ends. Use 'ip -d link show vlan20' to confirm 'vlan id 20'.";;
+    3) echo "If 'IP address cannot be reserved', check ARP conflicts (arping -D -I <if> <ip>) and NM logs (journalctl -u NetworkManager -b -n 200).";;
+    4) echo "Trunk = multiple VLAN subinterfaces on the same NIC. Bring both up and ping peers per VLAN to validate.";;
     5) echo "Access = untagged on the base NIC. Ensure both ends use access for that segment; otherwise frames won't match.";;
-    6) echo "If pings fail: verify both ends are in the same mode, in the same subnet (10.10.20.0/24), and link/carrier is up. Mixed modes won't communicate.";;
+    6) echo "If pings fail: verify mode symmetry, subnets (10.10.20.0/24), link/carrier, and duplicate IPs.";;
     *) echo -e "${FAIL} Unknown lab $lab"; return 1 ;;
   esac
   echo "----------------------------------------"
