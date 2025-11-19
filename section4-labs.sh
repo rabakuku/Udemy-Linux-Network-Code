@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
-# Section 4 - DNS & Name Resolution Labs
+# Section 4 - DNS & Name Resolution Labs (modeled after Section 3)
+# Labs:
+# 1) Configure Creating Forward Zones
+# 2) Configure Creating Reverse Zones
+# 3) Configure DNS Caching with dnsmasq
+# 4) Configure Split DNS Configuration
+# 5) Troubleshooting DNS
+# 6) Setting Up a Local DNS Server (Bind9)
 
 if (( EUID != 0 )); then
   echo -e "\e[33m[!] Please run as root: sudo $0 $*\e[0m"
@@ -63,6 +70,9 @@ summary_for_lab(){
   esac
 }
 
+# =========================
+# APPLY FUNCTIONS
+# =========================
 lab1_apply(){
   mkdir -p "$DNS_ZONE_DIR"
   cat > "$DNS_ZONE_DIR/db.lab.local" <<EOF
@@ -130,13 +140,19 @@ options {
 EOF
   q systemctl restart bind9
 }
-lab5_apply(){ :; }
+lab5_apply(){
+  # No-op: troubleshooting is check-only
+  :
+}
 lab6_apply(){
   apt-get install -y bind9
   mkdir -p "$DNS_ZONE_DIR"
   q systemctl enable --now bind9
 }
 
+# =========================
+# CHECK FUNCTIONS
+# =========================
 lab1_check(){
   begin_check
   [[ -f "$DNS_ZONE_DIR/db.lab.local" ]] && good "Forward zone file exists" || miss "Forward zone file missing"
@@ -183,6 +199,9 @@ lab6_check(){
   end_check
 }
 
+# =========================
+# SOLUTIONS
+# =========================
 print_solution(){
   local lab="$1"
   echo -e "${BOLD}Solution for Lab ${lab}${NC}"
@@ -276,6 +295,9 @@ EOS
   echo "----------------------------------------"
 }
 
+# =========================
+# TIPS
+# =========================
 print_tip(){
   local lab="$1"
   echo -e "${BOLD}Tips for Lab ${lab}${NC}"
@@ -292,35 +314,9 @@ print_tip(){
   echo "----------------------------------------"
 }
 
-apply_lab(){
-  local lab="$1"
-  summary_for_lab "$lab"
-  case "$lab" in
-    1) lab1_apply ;;
-    2) lab2_apply ;;
-    3) lab3_apply ;;
-    4) lab4_apply ;;
-    5) lab5_apply ;;
-    6) lab6_apply ;;
-    *) echo -e "${FAIL} Unknown lab $lab"; exit 2 ;;
-  esac
-  save_state lab "$lab"
-  echo -e "${OK} Applied Lab ${lab}"
-}
-
-do_check(){
-  local lab="$1"
-  case "$lab" in
-    1) lab1_check ;;
-    2) lab2_check ;;
-    3) lab3_check ;;
-    4) lab4_check ;;
-    5) lab5_check ;;
-    6) lab6_check ;;
-    *) echo -e "${FAIL} Unknown lab $lab"; exit 2 ;;
-  esac
-}
-
+# =========================
+# INTERACTIVE MENU / MAIN
+# =========================
 interactive_menu(){
   while true; do
     clear
@@ -336,7 +332,7 @@ interactive_menu(){
     read -rp "Select option: " opt
     case "$opt" in
       1) read -rp "Lab (1-6): " lab; summary_for_lab "$lab"; apply_lab "$lab"; save_state lab "$lab"; read -rp "Press Enter..." ;;
-      2) read -rp "Lab (1-6): " lab; do_check "$lab"; read -rp "Press Enter..." ;;
+      2) read -rp "Lab (1-6): " lab; "lab${lab}_check"; read -rp "Press Enter..." ;;
       3) : > "${STATE_FILE}" 2>/dev/null || true; echo -e "${OK} Reset complete"; read -rp "Press Enter..." ;;
       4) echo -e "${INFO} Current Lab: $(get_state lab || echo '(none)')"; systemctl status bind9 || true; systemctl status dnsmasq || true; read -rp "Press Enter..." ;;
       5) cat <<EOF
@@ -359,3 +355,15 @@ EOF
 
 main(){
   mkdirs
+  if [[ $# -lt 1 ]]; then interactive_menu; exit 0; fi
+  case "$1" in
+    list) cat <<EOF
+${BOLD}Section 4 Labs${NC}
+1. Configure Creating Forward Zones
+2. Configure Creating Reverse Zones
+3. Configure DNS Caching with dnsmasq
+4. Configure Split DNS Configuration
+5. Troubleshooting DNS
+6. Setting Up a Local DNS Server (Bind9)
+EOF
+      exit 0 ;;
