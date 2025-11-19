@@ -654,6 +654,9 @@ Goal: Troubleshoot Trunk vs Access
 3) Extended Verify (nmcli snapshot):
    nmcli dev status
    nmcli general status
+   nmcli con delete s3-vlan10
+   nmcli con add type vlan ifname vlan10 con-name s3-vlan10 dev ens4 id 10 ipv4.addresses 10.10.20.21/24 ipv4.method manual ipv6.method ignore
+   nmcli con up s3-vlan10
    nmcli -t -f NAME,DEVICE connection show --active
    nmcli con show s3-access | egrep "802-3-ethernet.mtu|ipv4" || true
    nmcli -g ip4 connection show s3-access || true
