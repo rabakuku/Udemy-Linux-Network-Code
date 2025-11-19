@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 # Section 3 - VLANs & Trunk/Access Labs (Two-Server Labs, role 1/2)
 # Labs:
-# 1) Creating VLAN Interfaces (CONFIG): vlan10 on primary NIC + static IP (role-based)
-# 2) Creating VLAN Interfaces (CONFIG): vlan20 on primary NIC + static IP (role-based)
+# 1) Creating VLAN Interfaces (CONFIG): vlan10 on ens4 + static IP (role-based)
+# 2) Creating VLAN Interfaces (CONFIG): vlan20 on ens4 + static IP (role-based)
 # 3) Creating VLAN Interfaces (TROUBLESHOOT): validate vlan10/vlan20 existence, IDs, IPs, NM status
-# 4) Trunk Ports (CONFIG): ensure vlan10 & vlan20 are present/active (multi-VLAN over one link)
-# 5) Access Ports (CONFIG): untagged access connection on base NIC + static IP (role-based)
+# 4) Trunk Ports (CONFIG): ensure vlan10 & vlan20 are present/active (multi-VLAN over ens4)
+# 5) Access Ports (CONFIG): untagged access connection on ens4 + static IP (role-based)
 # 6) Trunk/Access (TROUBLESHOOT): detect mode & validate expected state (+ optional peer pings)
 
-# ---- Run-as-root check BEFORE set -e / trap (prevents trap on false test) ----
+# ---- Run-as-root check BEFORE set -e / trap ----
 if (( EUID != 0 )); then
   echo -e "\e[33m[!] Please run as root: sudo $0 $*\e[0m"
   exit 1
 fi
 
-# Strict mode + friendly trap (won't fire on clean exits)
+# Strict mode + friendly trap
 if [[ -n "${LABS_DEBUG:-}" ]]; then set -x; fi
 set -Eeuo pipefail
 trap 'rc=$?; if [[ $rc -ne 0 ]]; then
@@ -42,6 +42,9 @@ NM_CONN_V10="s3-vlan10"
 NM_CONN_V20="s3-vlan20"
 NM_CONN_ACC="s3-access"
 
+# Base interface is always ens4 in these labs
+BASE_IF="ens4"
+
 # ===== Colors =====
 GREEN="\e[32m"; RED="\e[31m"; BLUE="\e[34m"; YELLOW="\e[33m"; BOLD="\e[1m"; NC="\e[0m"
 OK="${GREEN}✔${NC}"; FAIL="${RED}✗${NC}"; INFO="${BLUE}[i]${NC}"; WARN="${YELLOW}[!]${NC}"
@@ -63,16 +66,10 @@ get_state(){
   [[ -f "$STATE_FILE" ]] || { echo ""; return 0; }
   grep "^${k}=" "$STATE_FILE" | tail -n1 | cut -d= -f2- || true
 }
-primary_if(){
-  if ip link show ens4 >/dev/null 2>&1; then echo "ens4"; return 0; fi
-  if ip link show lan0 >/dev/null 2>&1; then echo "lan0"; return 0; fi
-  ip -o link show | awk -F': ' '{print $2}' | \
-    grep -E '^(en|eth|eno|ens|enp|lan)[a-z0-9]+' | grep -v '^lo$' | head -n1
-}
 nm_is_active(){ command -v nmcli >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager; }
 write_file(){ local path="$1" mode="$2"; umask 022; cat >"$path"; chmod "$mode" "$path" || true; chown root:root "$path" || true; }
 
-# --- Ensure NM & renderer: this fixes "device is unmanaged"
+# --- Ensure NM & renderer: fix "device is unmanaged"
 nm_require_and_ensure_renderer(){
   # Install & start NM
   if ! command -v nmcli >/dev/null 2>&1; then
@@ -85,7 +82,7 @@ nm_require_and_ensure_renderer(){
     exit 2
   fi
 
-  # Netplan -> NetworkManager renderer (lets NM own the NICs)  [1](https://www.cyberciti.biz/faq/change-netplan-renderer-from-networkd-to-networkmanager/)[2](https://linuxconfig.org/netplan-network-configuration-tutorial-for-beginners)
+  # Netplan -> NetworkManager renderer
   write_file "${S3_NETPLAN_FILE}" 0600 <<'YAML'
 network:
   version: 2
@@ -94,7 +91,7 @@ YAML
   q netplan generate
   q netplan apply
 
-  # NM conf.d overrides to manage all devices and honor ifupdown  [3](https://www.adamabusang.com/blog/fixing-unmanaged-network-interfaces-on-ubuntu-linux/)[4](https://www.networkmanager.dev/docs/api/latest/NetworkManager.conf.html)
+  # NM conf.d overrides to ensure devices are managed
   mkdir -p "${NM_CONF_DIR}"
   write_file "${NM_CONF_DIR}/10-globally-managed-devices.conf" 0644 <<'INI'
 [keyfile]
@@ -109,13 +106,6 @@ INI
 }
 
 # --- NM device helpers
-nm_conn_device(){
-  local name="$1" dev=""
-  dev="$(nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null | awk -F: -v n="$name" '$1==n{print $2;exit}')"
-  [[ -z "$dev" ]] && dev="$(nmcli -t -g connection.interface-name connection show "$name" 2>/dev/null || true)"
-  [[ -z "$dev" ]] && dev="$(primary_if)"
-  echo "$dev"
-}
 peer_ip(){ local role="$1" s1="$2" s2="$3"; [[ "$role" == "1" ]] && echo "$s2" || echo "$s1"; }
 ping_on_iface(){
   local ifc="$1" peer="$2" lbl="$3"
@@ -143,45 +133,67 @@ end_check(){
   fi
 }
 
+# ===== VLAN ID check (robust) =====
+# returns 0 (true) if both ip(8) and nmcli agree (or either source positively confirms)
+check_vlan_id(){
+  local ifname="$1" expect="$2" conn_name="$3"
+  local ok=0
+
+  # A) From ip -d (accept "vlan id 10" or "id 10")
+  if ip -d link show "$ifname" 2>/dev/null | grep -Eiq "(vlan[[:space:]]+id[[:space:]]+${expect})|(^|[[:space:]])id[[:space:]]+${expect}([[:space:]]|$)"; then
+    ok=1
+  fi
+
+  # B) From NM profile (authoritative for VLAN type connections)
+  # nmcli -g vlan.id connection show <name> returns the numeric id for VLAN connections
+  local nm_id
+  nm_id="$(nmcli -g vlan.id connection show "$conn_name" 2>/dev/null || true)"
+  if [[ -n "$nm_id" ]] && [[ "$nm_id" == "$expect" ]]; then
+    ok=1
+  fi
+
+  [[ $ok -eq 1 ]]
+}
+
 # ===== Summaries =====
 summary_for_lab(){
   local lab="$1"
   case "$lab" in
     1)
       cat <<EOF
-${BOLD}Summary — Lab 1 (Create VLAN 10 interface)${NC}
+${BOLD}Summary — Lab 1 (Create VLAN 10 on ${BASE_IF})${NC}
 - Switch Netplan to NetworkManager; ensure NM manages devices.
-- Create 'vlan10' (id 10) on primary NIC.
+- Create 'vlan10' (id 10) on ${BASE_IF}.
 - Assign role-based IPv4: 1 -> ${V10_S1_IP}/${PREFIX}, 2 -> ${V10_S2_IP}/${PREFIX}.
 EOF
       ;;
     2)
       cat <<EOF
-${BOLD}Summary — Lab 2 (Create VLAN 20 interface)${NC}
+${BOLD}Summary — Lab 2 (Create VLAN 20 on ${BASE_IF})${NC}
 - Switch Netplan to NetworkManager; ensure NM manages devices.
-- Create 'vlan20' (id 20) on primary NIC.
+- Create 'vlan20' (id 20) on ${BASE_IF}.
 - Assign role-based IPv4: 1 -> ${V20_S1_IP}/${PREFIX}, 2 -> ${V20_S2_IP}/${PREFIX}.
 EOF
       ;;
     3)
       cat <<EOF
 ${BOLD}Summary — Lab 3 (Troubleshoot VLAN Interfaces)${NC}
-- Verify 'vlan10'/'vlan20' exist, VLAN IDs (10/20), and IPs match the role.
+- Verify 'vlan10'/'vlan20' exist on ${BASE_IF}, VLAN IDs (10/20), and IPs match the role.
 - Confirm NM managing and link is up.
 EOF
       ;;
     4)
       cat <<EOF
-${BOLD}Summary — Lab 4 (Configure Trunk)${NC}
-- Ensure both 'vlan10' and 'vlan20' exist and are active on the same NIC.
+${BOLD}Summary — Lab 4 (Configure Trunk on ${BASE_IF})${NC}
+- Ensure both 'vlan10' and 'vlan20' exist and are active on ${BASE_IF}.
 - Optional peer pings on vlan10/vlan20 to demonstrate reachability.
 EOF
       ;;
     5)
       cat <<EOF
-${BOLD}Summary — Lab 5 (Configure Access)${NC}
+${BOLD}Summary — Lab 5 (Configure Access on ${BASE_IF})${NC}
 - Switch Netplan to NetworkManager; ensure NM manages devices.
-- Configure an UNTAGGED access connection on the base NIC with role-based IPv4.
+- Configure an UNTAGGED access connection on ${BASE_IF} with role-based IPv4.
 - Optional peer ping on untagged to demonstrate reachability.
 EOF
       ;;
@@ -198,27 +210,27 @@ EOF
 }
 
 # =========================
-# APPLY FUNCTIONS
+# APPLY FUNCTIONS (hardcoded ens4)
 # =========================
 lab1_apply(){
   nm_require_and_ensure_renderer
-  local role ip ifc
+  local role ip
   role="$(get_state role)"; [[ -z "$role" ]] && role="1"
   ip="$V10_S1_IP"; [[ "$role" == "2" ]] && ip="$V10_S2_IP"
-  ifc="$(primary_if)"; [[ -z "$ifc" ]] && { echo -e "${FAIL} No primary NIC detected"; exit 2; }
+
   q nmcli con delete "${NM_CONN_V10}"
-  nmcli con add type vlan ifname vlan10 con-name "${NM_CONN_V10}" dev "${ifc}" id 10 \
+  nmcli con add type vlan ifname vlan10 con-name "${NM_CONN_V10}" dev "${BASE_IF}" id 10 \
     ipv4.addresses "${ip}/${PREFIX}" ipv4.method manual ipv6.method ignore >/dev/null
   q nmcli con up "${NM_CONN_V10}"
 }
 lab2_apply(){
   nm_require_and_ensure_renderer
-  local role ip ifc
+  local role ip
   role="$(get_state role)"; [[ -z "$role" ]] && role="1"
   ip="$V20_S1_IP"; [[ "$role" == "2" ]] && ip="$V20_S2_IP"
-  ifc="$(primary_if)"; [[ -z "$ifc" ]] && { echo -e "${FAIL} No primary NIC detected"; exit 2; }
+
   q nmcli con delete "${NM_CONN_V20}"
-  nmcli con add type vlan ifname vlan20 con-name "${NM_CONN_V20}" dev "${ifc}" id 20 \
+  nmcli con add type vlan ifname vlan20 con-name "${NM_CONN_V20}" dev "${BASE_IF}" id 20 \
     ipv4.addresses "${ip}/${PREFIX}" ipv4.method manual ipv6.method ignore >/dev/null
   q nmcli con up "${NM_CONN_V20}"
 }
@@ -226,12 +238,12 @@ lab3_apply(){ nm_require_and_ensure_renderer; }
 lab4_apply(){ nm_require_and_ensure_renderer; lab1_apply; lab2_apply; }
 lab5_apply(){
   nm_require_and_ensure_renderer
-  local role ip ifc
+  local role ip
   role="$(get_state role)"; [[ -z "$role" ]] && role="1"
   ip="$ACC_S1_IP"; [[ "$role" == "2" ]] && ip="$ACC_S2_IP"
-  ifc="$(primary_if)"; [[ -z "$ifc" ]] && { echo -e "${FAIL} No primary NIC detected"; exit 2; }
+
   q nmcli con delete "${NM_CONN_ACC}"
-  nmcli con add type ethernet ifname "${ifc}" con-name "${NM_CONN_ACC}" \
+  nmcli con add type ethernet ifname "${BASE_IF}" con-name "${NM_CONN_ACC}" \
     ipv4.addresses "${ip}/${PREFIX}" ipv4.method manual ipv6.method ignore >/dev/null
   q nmcli con down "${NM_CONN_V10}"
   q nmcli con down "${NM_CONN_V20}"
@@ -239,19 +251,27 @@ lab5_apply(){
 }
 
 # =========================
-# CHECK FUNCTIONS
+# CHECK FUNCTIONS (hardcoded ens4 + robust VLAN ID)
 # =========================
 lab1_check(){
   begin_check
   nm_is_active && good "NetworkManager is active" || miss "NetworkManager is not active"
   nmcli -t -f NAME connection show | grep -qx "${NM_CONN_V10}" && \
     good "Connection '${NM_CONN_V10}' exists" || miss "Connection '${NM_CONN_V10}' missing"
+
+  ip link show vlan10 >/dev/null 2>&1 && good "vlan10 interface present" || miss "vlan10 missing"
+
+  if check_vlan_id "vlan10" "10" "${NM_CONN_V10}"; then
+    good "vlan10 id 10 OK"
+  else
+    miss "vlan10 id mismatch"
+  fi
+
   local role ip
   role="$(get_state role)"; [[ -z "$role" ]] && role="1"
   ip="$V10_S1_IP"; [[ "$role" == "2" ]] && ip="$V10_S2_IP"
-  ip link show vlan10 >/dev/null 2>&1 && good "vlan10 interface present" || miss "vlan10 missing"
-  ip -d link show vlan10 2>/dev/null | grep -q "vlan id 10" && good "vlan10 id 10 OK" || miss "vlan10 id mismatch"
-  ip -4 -o addr show dev vlan10 2>/dev/null | grep -q " ${ip}/" && good "vlan10 has ${ip}/${PREFIX}" || miss "vlan10 missing ${ip}/${PREFIX}"
+  ip -4 -o addr show dev vlan10 2>/dev/null | grep -q " ${ip}/" && \
+    good "vlan10 has ${ip}/${PREFIX}" || miss "vlan10 missing ${ip}/${PREFIX}"
   end_check
 }
 lab2_check(){
@@ -259,28 +279,39 @@ lab2_check(){
   nm_is_active && good "NetworkManager is active" || miss "NetworkManager is not active"
   nmcli -t -f NAME connection show | grep -qx "${NM_CONN_V20}" && \
     good "Connection '${NM_CONN_V20}' exists" || miss "Connection '${NM_CONN_V20}' missing"
+
+  ip link show vlan20 >/dev/null 2>&1 && good "vlan20 interface present" || miss "vlan20 missing"
+
+  if check_vlan_id "vlan20" "20" "${NM_CONN_V20}"; then
+    good "vlan20 id 20 OK"
+  else
+    miss "vlan20 id mismatch"
+  fi
+
   local role ip
   role="$(get_state role)"; [[ -z "$role" ]] && role="1"
   ip="$V20_S1_IP"; [[ "$role" == "2" ]] && ip="$V20_S2_IP"
-  ip link show vlan20 >/dev/null 2>&1 && good "vlan20 interface present" || miss "vlan20 missing"
-  ip -d link show vlan20 2>/dev/null | grep -q "vlan id 20" && good "vlan20 id 20 OK" || miss "vlan20 id mismatch"
-  ip -4 -o addr show dev vlan20 2>/dev/null | grep -q " ${ip}/" && good "vlan20 has ${ip}/${PREFIX}" || miss "vlan20 missing ${ip}/${PREFIX}"
+  ip -4 -o addr show dev vlan20 2>/dev/null | grep -q " ${ip}/" && \
+    good "vlan20 has ${ip}/${PREFIX}" || miss "vlan20 missing ${ip}/${PREFIX}"
   end_check
 }
 lab3_check(){
   begin_check
   nm_is_active && good "NetworkManager is active" || miss "NetworkManager is not active"
+
   local role ip10 ip20
   role="$(get_state role)"; [[ -z "$role" ]] && role="1"
   ip10="$V10_S1_IP"; [[ "$role" == "2" ]] && ip10="$V10_S2_IP"
   ip20="$V20_S1_IP"; [[ "$role" == "2" ]] && ip20="$V20_S2_IP"
+
   nmcli -t -f NAME connection show | grep -qx "${NM_CONN_V10}" && good "'${NM_CONN_V10}' exists" || miss "'${NM_CONN_V10}' missing"
   ip link show vlan10 >/dev/null 2>&1 && good "vlan10 present" || miss "vlan10 missing"
-  ip -d link show vlan10 | grep -q "vlan id 10" && good "vlan10 id 10 OK" || miss "vlan10 id mismatch"
+  check_vlan_id "vlan10" "10" "${NM_CONN_V10}" && good "vlan10 id 10 OK" || miss "vlan10 id mismatch"
   ip -4 -o addr show dev vlan10 | grep -q " ${ip10}/" && good "vlan10 has ${ip10}/${PREFIX}" || miss "vlan10 missing ${ip10}/${PREFIX}"
+
   nmcli -t -f NAME connection show | grep -qx "${NM_CONN_V20}" && good "'${NM_CONN_V20}' exists" || miss "'${NM_CONN_V20}' missing"
   ip link show vlan20 >/dev/null 2>&1 && good "vlan20 present" || miss "vlan20 missing"
-  ip -d link show vlan20 | grep -q "vlan id 20" && good "vlan20 id 20 OK" || miss "vlan20 id mismatch"
+  check_vlan_id "vlan20" "20" "${NM_CONN_V20}" && good "vlan20 id 20 OK" || miss "vlan20 id mismatch"
   ip -4 -o addr show dev vlan20 | grep -q " ${ip20}/" && good "vlan20 has ${ip20}/${PREFIX}" || miss "vlan20 missing ${ip20}/${PREFIX}"
   end_check
 }
@@ -292,37 +323,41 @@ lab4_check(){
   ip20="$V20_S1_IP"; [[ "$role" == "2" ]] && ip20="$V20_S2_IP"
   peer10="$(peer_ip "$role" "$V10_S1_IP" "$V10_S2_IP")"
   peer20="$(peer_ip "$role" "$V20_S1_IP" "$V20_S2_IP")"
+
   if nmcli -t -f NAME connection show | grep -qx "${NM_CONN_V10}" && \
      nmcli -t -f NAME connection show | grep -qx "${NM_CONN_V20}"; then
     good "Both VLAN connections exist"
   else
     miss "Trunk incomplete: one or both VLAN connections missing"
   fi
+
   ip link show vlan10 >/dev/null 2>&1 && good "vlan10 present" || miss "vlan10 missing"
-  ip -d link show vlan10 | grep -q "vlan id 10" && good "vlan10 id 10 OK" || miss "vlan10 id mismatch"
+  check_vlan_id "vlan10" "10" "${NM_CONN_V10}" && good "vlan10 id 10 OK" || miss "vlan10 id mismatch"
   ip -4 -o addr show dev vlan10 | grep -q " ${ip10}/" && good "vlan10 has ${ip10}/${PREFIX}" || miss "vlan10 missing ${ip10}/${PREFIX}"
+
   ip link show vlan20 >/dev/null 2>&1 && good "vlan20 present" || miss "vlan20 missing"
-  ip -d link show vlan20 | grep -q "vlan id 20" && good "vlan20 id 20 OK" || miss "vlan20 id mismatch"
+  check_vlan_id "vlan20" "20" "${NM_CONN_V20}" && good "vlan20 id 20 OK" || miss "vlan20 id mismatch"
   ip -4 -o addr show dev vlan20 | grep -q " ${ip20}/" && good "vlan20 has ${ip20}/${PREFIX}" || miss "vlan20 missing ${ip20}/${PREFIX}"
+
   ping_on_iface "vlan10" "$peer10" "TRUNK-vlan10"
   ping_on_iface "vlan20" "$peer20" "TRUNK-vlan20"
   end_check
 }
 lab5_check(){
   begin_check
-  local role ip ifc peer
+  local role ip peer
   role="$(get_state role)"; [[ -z "$role" ]] && role="1"
   ip="$ACC_S1_IP"; [[ "$role" == "2" ]] && ip="$ACC_S2_IP"
   peer="$(peer_ip "$role" "$ACC_S1_IP" "$ACC_S2_IP")"
-  ifc="$(primary_if)"
+
   nmcli -t -f NAME connection show | grep -qx "${NM_CONN_ACC}" && \
     good "Access connection '${NM_CONN_ACC}' exists" || miss "Access connection '${NM_CONN_ACC}' missing"
-  if [[ -n "$ifc" ]] && ip -4 -o addr show dev "$ifc" 2>/dev/null | grep -q " ${ip}/"; then
-    good "Base ${ifc} has ${ip}/${PREFIX}"
-  else
-    miss "Base ${ifc} lacks ${ip}/${PREFIX}"
-  fi
-  ping_on_iface "$ifc" "$peer" "ACCESS-untagged"
+
+  ip -4 -o addr show dev "${BASE_IF}" 2>/dev/null | grep -q " ${ip}/" && \
+    good "Base ${BASE_IF} has ${ip}/${PREFIX}" || miss "Base ${BASE_IF} lacks ${ip}/${PREFIX}"
+
+  ping_on_iface "${BASE_IF}" "$peer" "ACCESS-untagged"
+
   if ip link show vlan10 >/dev/null 2>&1 || ip link show vlan20 >/dev/null 2>&1; then
     echo -e "${WARN} VLAN subinterfaces present in access mode; ensure peer matches."
   fi
@@ -343,9 +378,8 @@ lab6_check(){
   [[ "$mode" == "trunk"  ]] && good "Detected TRUNK mode"
   [[ "$mode" == "unknown" ]] && miss "Unable to detect mode (no expected active connections)"
 
-  local role ifc ip10 ip20 accip peer10 peer20 peeracc
+  local role ip10 ip20 accip peer10 peer20 peeracc
   role="$(get_state role)"; [[ -z "$role" ]] && role="1"
-  ifc="$(primary_if)"
   ip10="$V10_S1_IP"; [[ "$role" == "2" ]] && ip10="$V10_S2_IP"
   ip20="$V20_S1_IP"; [[ "$role" == "2" ]] && ip20="$V20_S2_IP"
   accip="$ACC_S1_IP"; [[ "$role" == "2" ]] && accip="$ACC_S2_IP"
@@ -355,23 +389,24 @@ lab6_check(){
 
   if [[ "$mode" == "trunk" ]]; then
     ip link show vlan10 >/dev/null 2>&1 && good "vlan10 present" || miss "vlan10 missing"
-    ip -d link show vlan10 | grep -q "vlan id 10" && good "vlan10 id OK" || miss "vlan10 id mismatch"
+    check_vlan_id "vlan10" "10" "${NM_CONN_V10}" && good "vlan10 id OK" || miss "vlan10 id mismatch"
     ip -4 -o addr show dev vlan10 | grep -q " ${ip10}/" && good "vlan10 has ${ip10}/${PREFIX}" || miss "vlan10 missing ${ip10}/${PREFIX}"
+
     ip link show vlan20 >/dev/null 2>&1 && good "vlan20 present" || miss "vlan20 missing"
-    ip -d link show vlan20 | grep -q "vlan id 20" && good "vlan20 id OK" || miss "vlan20 id mismatch"
+    check_vlan_id "vlan20" "20" "${NM_CONN_V20}" && good "vlan20 id OK" || miss "vlan20 id mismatch"
     ip -4 -o addr show dev vlan20 | grep -q " ${ip20}/" && good "vlan20 has ${ip20}/${PREFIX}" || miss "vlan20 missing ${ip20}/${PREFIX}"
+
     ping_on_iface "vlan10" "$peer10" "TRUNK-vlan10"
     ping_on_iface "vlan20" "$peer20" "TRUNK-vlan20"
-    if [[ -n "$ifc" ]] && ip -4 -o addr show dev "$ifc" 2>/dev/null | grep -q " ${accip}/"; then
-      echo -e "${WARN} Base ${ifc} has untagged ${accip}/${PREFIX} while in trunk (peer may be access)."
+
+    # Mixed-mode hint
+    if ip -4 -o addr show dev "${BASE_IF}" 2>/dev/null | grep -q " ${accip}/"; then
+      echo -e "${WARN} Base ${BASE_IF} has untagged ${accip}/${PREFIX} while in trunk (peer may be access)."
     fi
   elif [[ "$mode" == "access" ]]; then
-    if [[ -n "$ifc" ]] && ip -4 -o addr show dev "$ifc" 2>/dev/null | grep -q " ${accip}/"; then
-      good "Base ${ifc} has ${accip}/${PREFIX}"
-    else
-      miss "Base ${ifc} lacks ${accip}/${PREFIX}"
-    fi
-    ping_on_iface "$ifc" "$peeracc" "ACCESS-untagged"
+    ip -4 -o addr show dev "${BASE_IF}" 2>/dev/null | grep -q " ${accip}/" && \
+      good "Base ${BASE_IF} has ${accip}/${PREFIX}" || miss "Base ${BASE_IF} lacks ${accip}/${PREFIX}"
+    ping_on_iface "${BASE_IF}" "$peeracc" "ACCESS-untagged"
     if ip link show vlan10 >/dev/null 2>&1 || ip link show vlan20 >/dev/null 2>&1; then
       echo -e "${WARN} VLANs present in access mode; ensure peer matches."
     fi
@@ -427,9 +462,8 @@ status(){
   lab="$(get_state lab || true)"; [[ -z "$lab" ]] && lab="(none)"
   echo -e "${INFO} Current Lab: ${lab}"
   echo -e "${INFO} Links:"; ip -o link show | awk -F': ' '{print " - " $2}'
-  local ifc; ifc="$(primary_if)"; [[ -n "$ifc" ]] && {
-    echo -e "${INFO} Primary: ${ifc}"; ip -4 -o addr show dev "${ifc}" || true;
-  }
+  echo -e "${INFO} Base IF: ${BASE_IF}"
+  ip -4 -o addr show dev "${BASE_IF}" || true
   if command -v nmcli >/dev/null 2>&1; then
     echo -e "${INFO} NM devices:"; nmcli -t -f DEVICE,STATE,CONNECTION device status || true
     echo -e "${INFO} NM active connections:"; nmcli -t -f NAME,DEVICE connection show --active || true
@@ -438,11 +472,11 @@ status(){
 print_list(){
   cat <<EOF
 ${BOLD}Section 3 Labs${NC}
-1. Creating VLAN Interfaces (CONFIG): vlan10 + static IP
-2. Creating VLAN Interfaces (CONFIG): vlan20 + static IP
+1. Creating VLAN Interfaces (CONFIG): vlan10 + static IP (on ens4)
+2. Creating VLAN Interfaces (CONFIG): vlan20 + static IP (on ens4)
 3. Creating VLAN Interfaces (TROUBLESHOOT)
 4. Trunk Ports (CONFIG): vlan10 + vlan20 active (+ optional peer pings)
-5. Access Ports (CONFIG): untagged on base NIC (+ optional peer ping)
+5. Access Ports (CONFIG): untagged on ens4 (+ optional peer ping)
 6. Trunk/Access (TROUBLESHOOT)
 
 Usage:
@@ -470,35 +504,37 @@ print_solution(){
   case "$lab" in
     1)
       cat <<'EOS'
-Goal: Create VLAN 10 on primary NIC with static IP (role-based)
+Goal: Create VLAN 10 on ens4 with static IP (role-based)
 1) Switch Netplan to NetworkManager (renderer), ensure NM manages devices.
 2) Create VLAN 10 via NetworkManager:
    nmcli con delete s3-vlan10
-   nmcli con add type vlan ifname vlan10 con-name s3-vlan10 dev <PRIMARY_IF> id 10 \
+   nmcli con add type vlan ifname vlan10 con-name s3-vlan10 dev ens4 id 10 \
      ipv4.addresses <ROLE_IP>/24 ipv4.method manual ipv6.method ignore
    nmcli con up s3-vlan10
 3) Verify:
-   ip -d link show vlan10 | grep "vlan id 10"
+   ip -d link show vlan10 | grep -Ei "(vlan[[:space:]]+id[[:space:]]+10)|(^|[[:space:]])id[[:space:]]+10([[:space:]]|$)"
+   nmcli -g vlan.id connection show s3-vlan10
    ip -4 addr show dev vlan10
 EOS
       ;;
     2)
       cat <<'EOS'
-Goal: Create VLAN 20 on primary NIC with static IP (role-based)
+Goal: Create VLAN 20 on ens4 with static IP (role-based)
 1) Switch Netplan to NetworkManager (renderer), ensure NM manages devices.
 2) Create VLAN 20:
    nmcli con delete s3-vlan20
-   nmcli con add type vlan ifname vlan20 con-name s3-vlan20 dev <PRIMARY_IF> id 20 \
+   nmcli con add type vlan ifname vlan20 con-name s3-vlan20 dev ens4 id 20 \
      ipv4.addresses <ROLE_IP>/24 ipv4.method manual ipv6.method ignore
    nmcli con up s3-vlan20
 3) Verify:
-   ip -d link show vlan20 | grep "vlan id 20"
+   ip -d link show vlan20 | grep -Ei "(vlan[[:space:]]+id[[:space:]]+20)|(^|[[:space:]])id[[:space:]]+20([[:space:]]|$)"
+   nmcli -g vlan.id connection show s3-vlan20
    ip -4 addr show dev vlan20
 EOS
       ;;
     3)
       cat <<'EOS'
-Goal: Troubleshoot VLAN Interfaces (vlan10/vlan20)
+Goal: Troubleshoot VLAN Interfaces (vlan10/vlan20 on ens4)
 1) Confirm NM & renderer:
    systemctl is-active NetworkManager
    grep -R "renderer: *NetworkManager" /etc/netplan/*.yaml
@@ -506,25 +542,29 @@ Goal: Troubleshoot VLAN Interfaces (vlan10/vlan20)
    nmcli -t -f NAME connection show | grep -x s3-vlan10
    nmcli -t -f NAME connection show | grep -x s3-vlan20
 3) Validate VLAN IDs:
-   ip -d link show vlan10 | grep "vlan id 10"
-   ip -d link show vlan20 | grep "vlan id 20"
+   ip -d link show vlan10 | grep -Ei "(vlan[[:space:]]+id[[:space:]]+10)|(^|[[:space:]])id[[:space:]]+10([[:space:]]|$)"
+   nmcli -g vlan.id connection show s3-vlan10
+   ip -d link show vlan20 | grep -Ei "(vlan[[:space:]]+id[[:space:]]+20)|(^|[[:space:]])id[[:space:]]+20([[:space:]]|$)"
+   nmcli -g vlan.id connection show s3-vlan20
 4) Validate addressing:
    ip -4 -o addr show dev vlan10
    ip -4 -o addr show dev vlan20
 5) If activation fails:
    journalctl -u NetworkManager -b -n 200
-   arping -D -I <PRIMARY_IF> <IP> -c 3
+   arping -D -I ens4 <IP> -c 3
 EOS
       ;;
     4)
       cat <<'EOS'
-Goal: Configure a Trunk (VLAN 10 and 20)
+Goal: Configure a Trunk (VLAN 10 and 20 on ens4)
 1) Ensure both VLAN connections exist and are up:
    nmcli con up s3-vlan10
    nmcli con up s3-vlan20
 2) Verify:
-   ip -d link show vlan10 | grep "vlan id 10"
-   ip -d link show vlan20 | grep "vlan id 20"
+   ip -d link show vlan10
+   nmcli -g vlan.id connection show s3-vlan10
+   ip -d link show vlan20
+   nmcli -g vlan.id connection show s3-vlan20
    ip -4 addr show dev vlan10
    ip -4 addr show dev vlan20
 3) Optional: ping peers
@@ -534,17 +574,17 @@ EOS
       ;;
     5)
       cat <<'EOS'
-Goal: Configure Access (untagged) on base NIC
+Goal: Configure Access (untagged) on ens4
 1) Switch Netplan to NetworkManager (renderer), ensure NM manages devices.
 2) Create untagged connection:
    nmcli con delete s3-access
-   nmcli con add type ethernet ifname <PRIMARY_IF> con-name s3-access \
+   nmcli con add type ethernet ifname ens4 con-name s3-access \
      ipv4.addresses <ROLE_IP>/24 ipv4.method manual ipv6.method ignore
    nmcli con up s3-access
 3) Optionally down VLAN connections
 4) Verify & optional ping:
-   ip -4 addr show dev <PRIMARY_IF>
-   ping -I <PRIMARY_IF> <peer-ip-access>
+   ip -4 addr show dev ens4
+   ping -I ens4 <peer-ip-access>
 EOS
       ;;
     6)
@@ -553,8 +593,8 @@ Goal: Troubleshoot Trunk vs Access
 1) Detect mode:
    nmcli -t -f NAME connection show --active
 2) Validate per mode:
-   TRUNK: both VLANs present, correct IDs, correct IPs
-   ACCESS: base NIC has untagged role IP
+   TRUNK: vlan10/vlan20 present, correct IDs (via ip -d and nmcli vlan.id), correct IPs
+   ACCESS: base ens4 has untagged role IP
 3) Common issues: mode mismatch, duplicate IPs (ARP), wrong VLAN IDs, carrier down
 4) Optional: peer pings per mode to confirm reachability.
 EOS
@@ -575,8 +615,8 @@ print_tip(){
   echo "----------------------------------------"
   case "$lab" in
     1) echo "If 'device is unmanaged', ensure Netplan renderer is NetworkManager and NM conf.d overrides are present." ;;
-    2) echo "VLAN ID must match on both ends; verify 'ip -d link show vlan20' shows 'vlan id 20'." ;;
-    3) echo "For 'IP not reserved', check ARP conflicts (arping -D -I <if> <ip>) and NM logs." ;;
+    2) echo "VLAN ID must match on both ends; verify with ip -d AND nmcli -g vlan.id." ;;
+    3) echo "For 'IP not reserved', check ARP conflicts (arping -D -I ens4 <ip>) and NM logs." ;;
     4) echo "Trunk = multiple VLAN subinterfaces; ping peers per VLAN to validate." ;;
     5) echo "Access = untagged; both ends must use access or frames won't match." ;;
     6) echo "If pings fail: check mode symmetry, subnet, link/carrier, and duplicates." ;;
