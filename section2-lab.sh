@@ -657,11 +657,13 @@ YAML
    sudo apt-get install -y network-manager
    sudo systemctl enable --now NetworkManager
 3) Create connection:
-   IFACE=$(ip -o link show | awk -F': ' '{print $2}' | grep -E '^(ens|enp|eno|eth|lan)' | head -n1)
-   nmcli con delete labs-primary 2>/dev/null || true
-   nmcli con add type ethernet ifname "$IFACE" con-name labs-primary ipv4.addresses 10.10.20.11/24 ipv4.method manual ipv6.method ignore
+   nmcli con delete labs-primary 
+   nmcli con add type ethernet ifname ens4 con-name labs-primary ipv4.addresses 10.10.20.11/24 ipv4.method manual ipv6.method ignore
    nmcli con up labs-primary
 4) Verify:
+   nmcli dev status
+   nmcli general status
+   nmcli connection show --active d9c30c91-698a-46d4-836b-5787e643602b
    nmcli -t -f NAME connection show | grep -x labs-primary
    nmcli -t -f DEVICE,STATE,CONNECTION device status
 EOS
@@ -795,3 +797,4 @@ main() {
   esac
 }
 main "$@"
+
