@@ -696,6 +696,7 @@ YAML
    nmcli dev status
    nmcli general status
    nmcli con show labs-primary | grep ipv4
+   nmcli -g ip4 connection show labs-primary
    nmcli -t -f NAME,DEVICE connection show --active | grep '^labs-primary:'
    nmcli -t -f NAME connection show | grep -x labs-primary
    nmcli -t -f DEVICE,STATE,CONNECTION device status
@@ -711,6 +712,8 @@ Goal: Change MTU to 1400 via NM.
    nmcli dev status
    nmcli general status
    nmcli con show labs-primary | grep 802-3-ethernet.mtu
+   nmcli -g 802-3-ethernet connection show labs-primary
+   nmcli -g 802-3-ethernet.mtu connection show labs-primary
    
 EOS
       ;;
@@ -830,3 +833,4 @@ main() {
   esac
 }
 main "$@"
+
