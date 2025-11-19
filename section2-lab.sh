@@ -8,8 +8,8 @@
 # 5) NetworkManager (CONFIG): change MTU via NM (802-3-ethernet.mtu=1400)
 # 6) NetworkManager (CONFIG): set IPv4 DNS on connection via NM (1.1.1.1, 8.8.8.8)
 # 7) Loopback (CONFIG): persistent 127.0.0.2/8, 127.0.0.3/8 via systemd-networkd
-
 # Menu: Apply / Check / Reset / Status / List / Solutions / Tips
+
 if [[ -n "${LABS_DEBUG:-}" ]]; then set -x; fi
 set -Eeuo pipefail
 trap 'echo -e "\e[31m✗ Error on line $LINENO while running: ${BASH_COMMAND}\e[0m" >&2' ERR
@@ -25,16 +25,13 @@ NM_DNS2="8.8.8.8"
 # ===== Paths / State =====
 LAB_ROOT="/etc/labs-menu"
 STATE_FILE="${LAB_ROOT}/state"
-
 NETPLAN_DIR="/etc/netplan"
 NETPLAN_BACKUP_DIR="${LAB_ROOT}/netplan-backups"
 NETPLAN_STASH="${LAB_ROOT}/netplan-stash"
 NM_NETPLAN_FILE="${NETPLAN_DIR}/10-section2-nm.yaml"
-
 NETD_DIR="/etc/systemd/network"
 NETD_BACKUP_DIR="${LAB_ROOT}/netd-backups"
 LO_NET_FILE="${NETD_DIR}/10-section2-lo.network"
-
 NM_CONF_DIR="/etc/NetworkManager/conf.d"
 NM_CONN_NAME="labs-primary"
 
@@ -69,18 +66,18 @@ primary_if() {
   if ip link show ens4 >/dev/null 2>&1; then echo "ens4"; return 0; fi
   if ip link show lan0 >/dev/null 2>&1; then echo "lan0"; return 0; fi
   ip -o link show | awk -F': ' '{print $2}' \
-    | grep -E '^(en|eth|eno|ens|enp|lan)[a-z0-9]+' | grep -v '^lo$' | head -n1
+    | grep -E '^(en|eth|eno|ens|enp|lan)[a-z0-9]+' \
+    | grep -v '^lo$' | head -n1
 }
 iface_mac() { local ifc="$1"; cat "/sys/class/net/${ifc}/address" 2>/dev/null || echo ""; }
 nm_is_active() { command -v nmcli >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet NetworkManager; }
-write_file() {  # write_file <path> <mode>  (reads content from stdin)
+write_file() { # write_file <path> <mode> (reads content from stdin)
   local path="$1" mode="$2"
   umask 022
   cat >"$path"
   chmod "$mode" "$path" || true
   chown root:root "$path" || true
 }
-
 backup_netplan_once() {
   mkdirs
   if [[ ! -f "${NETPLAN_BACKUP_DIR}/bundle-INITIAL.tgz" && -d "$NETPLAN_DIR" ]]; then
@@ -199,7 +196,6 @@ EOF
 # =========================
 # LAB APPLY FUNCTIONS
 # =========================
-
 # --- Interface Naming Labs ---
 lab1_apply() {
   backup_netplan_once
@@ -208,7 +204,6 @@ lab1_apply() {
   ifc="$(primary_if)"; mac="$(iface_mac "$ifc")"
   ip="$S1_IP"; [[ "$role" == "2" ]] && ip="$S2_IP"
   [[ -z "$mac" ]] && { echo -e "${FAIL} Unable to read MAC for ${ifc}"; exit 2; }
-
   write_file "${NETPLAN_DIR}/10-section2-lab1.yaml" 0600 <<EOF
 network:
   version: 2
@@ -223,7 +218,6 @@ EOF
   q netplan generate
   q netplan apply
 }
-
 lab2_apply() {
   backup_netplan_once
   local ifc mac ip role
@@ -231,7 +225,6 @@ lab2_apply() {
   ifc="$(primary_if)"; mac="$(iface_mac "$ifc")"
   ip="$S1_IP"; [[ "$role" == "2" ]] && ip="$S2_IP"
   [[ -z "$mac" ]] && { echo -e "${FAIL} Unable to read MAC for ${ifc}"; exit 2; }
-
   write_file "${NETPLAN_DIR}/20-section2-lab2.yaml" 0600 <<EOF
 network:
   version: 2
@@ -253,7 +246,6 @@ lab3_apply() {
   local ifc
   ifc="$(primary_if)"
   [[ -z "$ifc" ]] && { echo -e "${FAIL} No primary NIC detected"; exit 2; }
-
   write_file "${NETPLAN_DIR}/25-section2-lab3-vlan10.yaml" 0600 <<EOF
 network:
   version: 2
@@ -343,6 +335,21 @@ EOF
 }
 
 # =========================
+# DEVICE RESOLUTION (shared)
+# =========================
+nm_conn_device() {
+  # Usage: nm_conn_device <connection_name>
+  local name="$1" dev=""
+  # Prefer active device mapping
+  dev="$(nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null | awk -F: -v n="$name" '$1==n{print $2;exit}')"
+  # If not active, use the connection's interface-name property
+  [[ -z "$dev" ]] && dev="$(nmcli -t -g connection.interface-name connection show "$name" 2>/dev/null || true)"
+  # Fallback: primary_if
+  [[ -z "$dev" ]] && dev="$(primary_if)"
+  echo "$dev"
+}
+
+# =========================
 # LAB CHECK FUNCTIONS
 # =========================
 lab1_check() {
@@ -350,7 +357,6 @@ lab1_check() {
   local role ip
   role="$(get_state role)"; [[ -z "$role" ]] && role="1"
   ip="$S1_IP"; [[ "$role" == "2" ]] && ip="$S2_IP"
-
   if ip link show lan0 >/dev/null 2>&1; then
     good "'lan0' interface present"
   else
@@ -369,7 +375,6 @@ lab2_check() {
   local role ip
   role="$(get_state role)"; [[ -z "$role" ]] && role="1"
   ip="$S1_IP"; [[ "$role" == "2" ]] && ip="$S2_IP"
-
   if ip link show wan0 >/dev/null 2>&1; then
     good "'wan0' interface present"
   else
@@ -405,32 +410,61 @@ lab3_check() {
 
 lab4_check() {
   begin_check
+
+  # 1) NM is active
   if nm_is_active; then
     good "NetworkManager is active"
   else
     miss "NetworkManager is not active"
   fi
+
+  # 2) Connection exists
   if nmcli -t -f NAME connection show 2>/dev/null | grep -qx "${NM_CONN_NAME}"; then
     good "NM connection '${NM_CONN_NAME}' exists"
   else
     miss "NM connection '${NM_CONN_NAME}' is missing"
   fi
-  # Optional: verify an IPv4 is present on the bound device
-  local dev
-  dev="$(nmcli -t -f GENERAL.DEVICES connection show "${NM_CONN_NAME}" 2>/dev/null | cut -d: -f1 || true)"
-  if [[ -n "$dev" ]] && ip -4 -o addr show dev "$dev" 2>/dev/null | grep -q " inet "; then
-    good "Device ${dev} has an IPv4 address"
+
+  # 3) Netplan renderer is NetworkManager
+  if grep -Rqs "renderer:[[:space:]]*NetworkManager" "$NETPLAN_DIR"/*.yaml 2>/dev/null; then
+    good "Netplan renderer is NetworkManager"
   else
-    miss "Device for '${NM_CONN_NAME}' lacks IPv4 (or not detected)"
+    miss "Netplan renderer is not set to NetworkManager"
   fi
+
+  # 4) Resolve device reliably and check exact IPv4 address
+  local role ip dev
+  role="$(get_state role)"; [[ -z "$role" ]] && role="1"
+  ip="$S1_IP"; [[ "$role" == "2" ]] && ip="$S2_IP"
+  dev="$(nm_conn_device "${NM_CONN_NAME}")"
+
+  if [[ -n "$dev" ]] && ip -4 -o addr show dev "$dev" 2>/dev/null | grep -q " ${ip}/"; then
+    good "Device ${dev} has IPv4 ${ip}/${PREFIX}"
+  else
+    miss "Expected IPv4 ${ip}/${PREFIX} on device '${dev:-unknown}' is missing"
+  fi
+
+  # 5) Device is managed by NM
+  if [[ -n "$dev" ]] && nmcli -t -f DEVICE,STATE device status 2>/dev/null | awk -F: -v d="$dev" '$1==d{print $2}' | grep -Eq '^(connected|disconnected)$'; then
+    good "Device ${dev} is managed by NetworkManager"
+  else
+    miss "Device ${dev:-unknown} is not managed (or not found) by NetworkManager"
+  fi
+
+  # 6) IPv6 method ignore (as configured in lab4_apply)
+  if nmcli -g ipv6.method connection show "${NM_CONN_NAME}" 2>/dev/null | grep -qi '^ignore$'; then
+    good "ipv6.method is 'ignore' on '${NM_CONN_NAME}'"
+  else
+    miss "ipv6.method is not 'ignore' on '${NM_CONN_NAME}'"
+  fi
+
   end_check
 }
 
 lab5_check() {
   begin_check
   local dev
-  dev="$(nmcli -t -f GENERAL.DEVICES connection show "${NM_CONN_NAME}" 2>/dev/null | cut -d: -f1 || true)"
-  [[ -z "$dev" ]] && dev="$(primary_if)"
+  dev="$(nm_conn_device "${NM_CONN_NAME}")"
   if [[ -n "$dev" ]] && ip link show "$dev" 2>/dev/null | grep -q "mtu 1400"; then
     good "MTU 1400 set on ${dev}"
   else
@@ -496,7 +530,6 @@ apply_lab() {
   save_state lab "$lab"
   echo -e "${OK} Applied Lab ${lab}"
 }
-
 do_check() {
   local lab="$1"
   case "$lab" in
@@ -523,15 +556,14 @@ reset_all() {
     rm -f "${NM_CONF_DIR}/99-section2-unmanaged.conf"
     q systemctl restart NetworkManager
   fi
-  if [[ -f "$LO_NET_FILE" ]]; then
-    rm -f "$LO_NET_FILE"
+  if [[ -f "${LO_NET_FILE}" ]]; then
+    rm -f "${LO_NET_FILE}"
     q systemctl restart systemd-networkd
   fi
   restore_netplan
-  : > "$STATE_FILE" 2>/dev/null || true
+  : > "${STATE_FILE}" 2>/dev/null || true
   echo -e "${OK} Reset complete"
 }
-
 status() {
   local lab
   lab="$(get_state lab || true)"; [[ -z "$lab" ]] && lab="(none)"
@@ -544,7 +576,6 @@ status() {
     echo -e "${INFO} NM devices:"; nmcli -t -f DEVICE,STATE,CONNECTION device status || true
   fi
 }
-
 print_list() {
   cat <<EOF
 ${BOLD}Section 2 Labs${NC}
@@ -578,7 +609,7 @@ print_solution() {
 Goal: Netplan set-name -> lan0 with static IP.
 1) Find primary NIC + MAC:
    ip -o link show
-   ip link show ens4   # or your primary
+   ip link show ens4 # or your primary
    cat /sys/class/net/ens4/address
 2) Create netplan:
    sudo tee /etc/netplan/10-section2-lab1.yaml >/dev/null <<'YAML'
@@ -657,13 +688,15 @@ YAML
    sudo apt-get install -y network-manager
    sudo systemctl enable --now NetworkManager
 3) Create connection:
-   nmcli con delete labs-primary 
-   nmcli con add type ethernet ifname ens4 con-name labs-primary ipv4.addresses 10.10.20.11/24 ipv4.method manual ipv6.method ignore
+   nmcli con delete labs-primary
+   nmcli con add type ethernet ifname ens4 con-name labs-primary \
+     ipv4.addresses 10.10.20.11/24 ipv4.method manual ipv6.method ignore
    nmcli con up labs-primary
 4) Verify:
    nmcli dev status
    nmcli general status
-   nmcli connection show --active d9c30c91-698a-46d4-836b-5787e643602b
+   nmcli con show labs-primary | grep ipv4
+   nmcli -t -f NAME,DEVICE connection show --active | grep '^labs-primary:'
    nmcli -t -f NAME connection show | grep -x labs-primary
    nmcli -t -f DEVICE,STATE,CONNECTION device status
 EOS
@@ -675,8 +708,10 @@ Goal: Change MTU to 1400 via NM.
    nmcli con modify labs-primary 802-3-ethernet.mtu 1400
    nmcli con up labs-primary
 3) Verify:
-   DEV=$(nmcli -t -f GENERAL.DEVICES connection show labs-primary | cut -d: -f1)
-   ip link show "$DEV" | grep 'mtu 1400'
+   nmcli dev status
+   nmcli general status
+   nmcli con show labs-primary | grep 802-3-ethernet.mtu
+   
 EOS
       ;;
     6) cat <<'EOS'
@@ -720,13 +755,13 @@ print_tip() {
   echo -e "${BOLD}Tips for Lab ${lab}${NC}"
   echo "----------------------------------------"
   case "$lab" in
-    1) echo "Use netplan 'match.macaddress' with 'set-name:' to pin a stable name (lan0). After applying, verify link name and IPv4."; ;;
-    2) echo "Same pattern as Lab 1 but naming to 'wan0'. Ensure MAC matches the intended NIC."; ;;
-    3) echo "VLANs in netplan use 'vlans:' with 'id' and 'link'. Use 'ip -d link show <vlan>' to inspect VLAN metadata."; ;;
-    4) echo "If nmcli errors, confirm NetworkManager is installed/active and netplan’s renderer is 'NetworkManager'."; ;;
-    5) echo "MTU changes via NM take effect when the connection is (re)activated with 'nmcli con up'."; ;;
-    6) echo "Set multiple DNS servers with a space-separated list; enable 'ipv4.ignore-auto-dns yes' to prefer manual DNS."; ;;
-    7) echo "systemd-networkd can persist multiple 127.x addresses on 'lo' via a .network file."; ;;
+    1) echo "Use netplan 'match.macaddress' with 'set-name:' to pin a stable name (lan0). After applying, verify link name and IPv4." ;;
+    2) echo "Same pattern as Lab 1 but naming to 'wan0'. Ensure MAC matches the intended NIC." ;;
+    3) echo "VLANs in netplan use 'vlans:' with 'id' and 'link'. Use 'ip -d link show <vlan>' to inspect VLAN metadata." ;;
+    4) echo "If nmcli errors, confirm NetworkManager is installed/active and netplan’s renderer is 'NetworkManager'." ;;
+    5) echo "MTU changes via NM take effect when the connection is (re)activated with 'nmcli con up'." ;;
+    6) echo "Set multiple DNS servers with a space-separated list; enable 'ipv4.ignore-auto-dns yes' to prefer manual DNS." ;;
+    7) echo "systemd-networkd can persist multiple 127.x addresses on 'lo' via a .network file." ;;
     *) echo -e "${FAIL} Unknown lab $lab"; return 1 ;;
   esac
   echo "----------------------------------------"
@@ -769,7 +804,6 @@ main() {
   need_root
   mkdirs
   if [[ $# -lt 1 ]]; then interactive_menu; exit 0; fi
-
   case "$1" in
     list) print_list; exit 0 ;;
     status) status; exit 0 ;;
@@ -781,7 +815,6 @@ main() {
       [[ $# -ne 2 ]] && { echo -e "${FAIL} Usage: $0 tips <lab#>"; exit 2; }
       print_tip "$2"; exit 0 ;;
   esac
-
   local lab="$1"
   [[ $# -lt 2 ]] && { echo -e "${FAIL} Usage: $0 <lab#> apply|check [role]"; exit 2; }
   case "$2" in
@@ -797,4 +830,3 @@ main() {
   esac
 }
 main "$@"
-
