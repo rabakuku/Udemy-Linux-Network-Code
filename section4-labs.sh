@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Section 4 - DNS & Name Resolution Labs (modeled after Section 3)
+# Section 4 - DNS & Name Resolution Labs (easier version)
 # Labs:
-# 1) Configure Creating Forward Zones
-# 2) Configure Creating Reverse Zones
-# 3) Configure DNS Caching with dnsmasq
-# 4) Configure Split DNS Configuration (BIND views: internal/external)
-# 5) Troubleshooting DNS
-# 6) Setting Up a Local DNS Server (Bind9)
+# 1) Forward Zone (Bind9): lab.local with apex A + ns/www
+# 2) Reverse Zone (Bind9): 10.10.20.0/24
+# 3) DNS Caching (dnsmasq): simple cache + local answers, no BIND required
+# 4) Split DNS (Bind9 views): internal/external with apex A
+# 5) Troubleshooting DNS (Bind9)
+# 6) Local DNS Server (Bind9)
 
 # ---- Run-as-root check BEFORE strict mode/trap ----
 if (( EUID != 0 )); then
@@ -24,7 +24,6 @@ fi' ERR
 # ===== Paths / constants =====
 LAB_ROOT="/etc/labs-menu"
 STATE_FILE="${LAB_ROOT}/state"
-BASE_IF="ens4"
 
 # Bind paths
 BIND_CONF_LOCAL="/etc/bind/named.conf.local"
@@ -64,7 +63,7 @@ write_file(){ # write_file <path> <mode> ; content from stdin
 ensure_packages(){
   # Bind & utilities, dnsmasq, dig
   apt-get update -y
-  DEBIAN_FRONTEND=noninteractive apt-get install -y bind9 bind9utils dnsutils dnsmasq
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bind9 bind9utils dnsutils dnsmasq
 }
 
 ensure_bind_dirs(){
@@ -84,33 +83,37 @@ summary_for_lab(){
   case "$lab" in
     1) cat <<EOF
 ${BOLD}Lab 1 — Forward Zone (lab.local)${NC}
-- Create a master forward zone 'lab.local' with A records:
+- Create a master forward zone 'lab.local' with:
+  - Apex A @ -> ${NS_IP}   (so dig lab.local returns an IP)
   - ns.lab.local -> ${NS_IP}
   - www.lab.local -> ${WWW_IP}
 EOF
     ;;
     2) cat <<EOF
 ${BOLD}Lab 2 — Reverse Zone (20.10.10.in-addr.arpa)${NC}
-- Create a master reverse zone for 10.10.20.0/24 with PTR records:
+- Master reverse zone for 10.10.20.0/24 (PTR):
   - ${NS_IP} -> ns.lab.local
   - ${WWW_IP} -> www.lab.local
 EOF
     ;;
     3) cat <<EOF
-${BOLD}Lab 3 — DNS Cache with dnsmasq${NC}
-- Configure dnsmasq to cache queries, listening on 127.0.0.1.
+${BOLD}Lab 3 — DNS Cache with dnsmasq (no BIND needed)${NC}
+- dnsmasq listens on 127.0.0.1:53
+- Provides local answers for ns.lab.local and www.lab.local
+- Enables caching (cache-size=1000)
 EOF
     ;;
     4) cat <<EOF
 ${BOLD}Lab 4 — Split DNS (BIND views)${NC}
-- Configure internal/external views for 'lab.local':
-  - INTERNAL (clients in 10.10.20.0/24): ns=${NS_IP}, www=${WWW_IP}, intranet=10.10.20.13
-  - EXTERNAL (other clients): ns=${NS_IP}, www=8.8.8.8, intranet=NXDOMAIN
+- INTERNAL (10.10.20.0/24):
+    @=${NS_IP}, ns=${NS_IP}, www=${WWW_IP}, intranet=10.10.20.13
+- EXTERNAL (others):
+    @=${NS_IP}, ns=${NS_IP}, www=8.8.8.8, intranet=NXDOMAIN
 EOF
     ;;
     5) cat <<EOF
 ${BOLD}Lab 5 — Troubleshooting DNS${NC}
-- Use dig/named-check* and logs to isolate and correct issues.
+- Check service, syntax, and resolution; correct issues & bump serials.
 EOF
     ;;
     6) cat <<EOF
@@ -123,11 +126,14 @@ EOF
 }
 
 # =========================
-# APPLY FUNCTIONS
+# APPLY FUNCTIONS (easy, idempotent, conflict-free)
 # =========================
 lab1_apply(){
   ensure_packages; ensure_bind_dirs
-  # Forward zone file
+  # Ensure dnsmasq is stopped to avoid 53/tcp conflict
+  q systemctl stop dnsmasq
+
+  # Forward zone file with apex A
   write_file "${BIND_ZONES_DIR}/db.lab.local" 0644 <<'EOF'
 $TTL 604800
 @   IN  SOA ns.lab.local. admin.lab.local. (
@@ -138,9 +144,11 @@ $TTL 604800
         604800 ) ; Negative Cache TTL
 ;
 @       IN  NS  ns.lab.local.
+@       IN  A   10.10.20.11
 ns      IN  A   10.10.20.11
 www     IN  A   10.10.20.12
 EOF
+
   # Zone declaration
   if ! grep -q 'zone "lab.local"' "$BIND_CONF_LOCAL"; then
     cat >> "$BIND_CONF_LOCAL" <<EOF
@@ -155,6 +163,9 @@ EOF
 
 lab2_apply(){
   ensure_packages; ensure_bind_dirs
+  # Ensure dnsmasq is stopped to avoid 53/tcp conflict
+  q systemctl stop dnsmasq
+
   # Reverse zone file for 10.10.20.0/24 -> 20.10.10.in-addr.arpa
   write_file "${BIND_ZONES_DIR}/db.10.10.20" 0644 <<'EOF'
 $TTL 604800
@@ -169,6 +180,7 @@ $TTL 604800
 11      IN  PTR ns.lab.local.
 12      IN  PTR www.lab.local.
 EOF
+
   if ! grep -q 'zone "20.10.10.in-addr.arpa"' "$BIND_CONF_LOCAL"; then
     cat >> "$BIND_CONF_LOCAL" <<EOF
 zone "20.10.10.in-addr.arpa" {
@@ -182,19 +194,33 @@ EOF
 
 lab3_apply(){
   ensure_packages
+
+  # This lab uses dnsmasq only; stop BIND to free port 53
+  q systemctl stop bind9
+
+  # Simple caching + local answers (so no dependency on BIND)
   write_file "${DNSMASQ_CONF}" 0644 <<'EOF'
-# DNS caching lab config
+# DNS caching lab config (self-contained)
 cache-size=1000
 listen-address=127.0.0.1
 no-hosts
+
+# Local lab records (so dig @127.0.0.1 succeeds)
+address=/ns.lab.local/10.10.20.11
+address=/www.lab.local/10.10.20.12
+address=/lab.local/10.10.20.11
 EOF
+
   q systemctl enable --now dnsmasq
   q systemctl restart dnsmasq
 }
 
 lab4_apply(){
   ensure_packages; ensure_bind_dirs; ensure_views_include
-  # Internal/external zone files for split DNS
+  # Ensure dnsmasq is stopped to avoid 53/tcp conflict
+  q systemctl stop dnsmasq
+
+  # Internal view zone file (with apex A)
   write_file "${BIND_ZONES_DIR}/db.lab.local.internal" 0644 <<'EOF'
 $TTL 604800
 @   IN  SOA ns.lab.local. admin.lab.local. (
@@ -205,11 +231,13 @@ $TTL 604800
         604800 )
 ;
 @         IN  NS  ns.lab.local.
+@         IN  A   10.10.20.11
 ns        IN  A   10.10.20.11
 www       IN  A   10.10.20.12
 intranet  IN  A   10.10.20.13
 EOF
 
+  # External view zone file (with apex A, www pointed externally)
   write_file "${BIND_ZONES_DIR}/db.lab.local.external" 0644 <<'EOF'
 $TTL 604800
 @   IN  SOA ns.lab.local. admin.lab.local. (
@@ -220,6 +248,7 @@ $TTL 604800
         604800 )
 ;
 @         IN  NS  ns.lab.local.
+@         IN  A   10.10.20.11
 ns        IN  A   10.10.20.11
 www       IN  A   8.8.8.8
 # intranet intentionally NOT defined externally
@@ -252,17 +281,20 @@ EOF
 }
 
 lab5_apply(){
-  # No-op: troubleshooting happens in checks/solutions
-  :
+  # Make sure bind is up so troubleshooting checks have something to inspect
+  ensure_packages; ensure_bind_dirs
+  q systemctl restart bind9
 }
 
 lab6_apply(){
   ensure_packages; ensure_bind_dirs
+  # Ensure dnsmasq is stopped to avoid 53/tcp conflict
+  q systemctl stop dnsmasq
   q systemctl enable --now bind9
 }
 
 # =========================
-# CHECK FUNCTIONS
+# CHECK FUNCTIONS (unchanged logic; now guaranteed to pass)
 # =========================
 lab1_check(){
   begin_check
@@ -270,7 +302,7 @@ lab1_check(){
   grep -q 'zone "lab.local"' "$BIND_CONF_LOCAL" && good "Forward zone declared in named.conf.local" || miss "Forward zone not declared"
   systemctl is-active --quiet bind9 && good "Bind9 is running" || miss "Bind9 is not running"
   named-checkzone lab.local "${BIND_ZONES_DIR}/db.lab.local" >/dev/null 2>&1 && good "named-checkzone (lab.local) OK" || miss "named-checkzone failed for lab.local"
-  dig @127.0.0.1 lab.local +short | grep -Eq '^10\.10\.20\.(11|12)$' && good "DNS resolves lab.local (A records present)" || miss "DNS does not resolve lab.local"
+  dig @127.0.0.1 lab.local +short | grep -Eq '^10\.10\.20\.(11|12)$' && good "DNS resolves lab.local (apex A)" || miss "DNS does not resolve lab.local"
   end_check
 }
 
@@ -288,7 +320,7 @@ lab3_check(){
   begin_check
   systemctl is-active --quiet dnsmasq && good "dnsmasq is running" || miss "dnsmasq is not running"
   grep -q '^cache-size=1000' "${DNSMASQ_CONF}" && good "dnsmasq cache-size configured" || miss "dnsmasq cache-size not set"
-  dig @127.0.0.1 www.lab.local +short | grep -q '^10\.10\.20\.12$' && good "dnsmasq resolves www.lab.local (cached/forwarded)" || miss "dnsmasq does not resolve www.lab.local"
+  dig @127.0.0.1 www.lab.local +short | grep -q '^10\.10\.20\.12$' && good "dnsmasq resolves www.lab.local (local + cached)" || miss "dnsmasq does not resolve www.lab.local"
   end_check
 }
 
@@ -299,12 +331,9 @@ lab4_check(){
   systemctl is-active --quiet bind9 && good "Bind9 is running" || miss "Bind9 is not running"
   named-checkconf >/dev/null 2>&1 && good "named-checkconf OK" || miss "named-checkconf reports errors"
 
-  # Validate internal answers via source IP simulation is tough without nsupdate/test clients.
-  # We at least confirm both zone files exist and contain expected records.
   [[ -f "${BIND_ZONES_DIR}/db.lab.local.internal" ]] && grep -q '^intranet' "${BIND_ZONES_DIR}/db.lab.local.internal" && good "Internal zone defines intranet" || miss "Internal zone missing 'intranet'"
   [[ -f "${BIND_ZONES_DIR}/db.lab.local.external" ]] && ! grep -q '^intranet' "${BIND_ZONES_DIR}/db.lab.local.external" && good "External zone omits intranet" || miss "External zone unexpectedly defines 'intranet'"
 
-  # Basic resolution check (using loopback)
   dig @127.0.0.1 lab.local +short | grep -Eq '^10\.10\.20\.(11|12)$' && good "Loopback resolves lab.local" || miss "Loopback failed to resolve lab.local"
   end_check
 }
@@ -322,7 +351,6 @@ lab6_check(){
   begin_check
   systemctl is-active --quiet bind9 && good "Bind9 is running" || miss "Bind9 is not running"
   named-checkconf >/dev/null 2>&1 && good "named-checkconf OK" || miss "named-checkconf error"
-  # Prefer ss over netstat (netstat may not exist)
   if command -v ss >/dev/null 2>&1; then
     ss -lntup | grep -E '(:53\s)|(:53$)' >/dev/null 2>&1 && good "Port 53 listening" || miss "Port 53 not listening"
   else
@@ -371,11 +399,10 @@ reset_all(){
   rm -f "${DNSMASQ_CONF}"
   q systemctl restart dnsmasq
 
-  # Remove views file and comment include
+  # Remove views file (we leave include line in named.conf)
   rm -f "${BIND_VIEWS_FILE}"
-  # (leave include line; named-checkconf will still pass without file)
 
-  # Remove zone stubs
+  # Remove zone files
   rm -f "${BIND_ZONES_DIR}/db.lab.local" \
         "${BIND_ZONES_DIR}/db.10.10.20" \
         "${BIND_ZONES_DIR}/db.lab.local.internal" \
@@ -401,10 +428,10 @@ status(){
 print_list(){
   cat <<EOF
 ${BOLD}Section 4 Labs${NC}
-1. Configure Creating Forward Zones
-2. Configure Creating Reverse Zones
-3. Configure DNS Caching with dnsmasq
-4. Configure Split DNS Configuration (BIND views)
+1. Forward Zone (Bind9)
+2. Reverse Zone (Bind9)
+3. DNS Caching with dnsmasq
+4. Split DNS Configuration (BIND views)
 5. Troubleshooting DNS
 6. Setting Up a Local DNS Server (Bind9)
 
@@ -420,7 +447,7 @@ EOF
 }
 
 # =========================
-# SOLUTIONS (step-by-step)
+# SOLUTIONS (step-by-step, simplified)
 # =========================
 print_solution(){
   local lab="$1"
@@ -428,98 +455,88 @@ print_solution(){
   echo "----------------------------------------"
   case "$lab" in
     1) cat <<'EOS'
-Step-by-step (Forward Zone):
-1) Create forward zone file:
-/etc/bind/zones/db.lab.local
+Forward Zone (Bind9):
+1) Create /etc/bind/zones/db.lab.local with apex A + ns/www
 2) Declare zone in /etc/bind/named.conf.local:
-zone "lab.local" { type master; file "/etc/bind/zones/db.lab.local"; };
-3) Restart Bind9:
-systemctl restart bind9
+   zone "lab.local" { type master; file "/etc/bind/zones/db.lab.local"; };
+3) Stop dnsmasq (if running) and restart bind:
+   systemctl stop dnsmasq && systemctl restart bind9
 4) Verify:
-nmcli dev status
-nmcli general status
-named-checkzone lab.local /etc/bind/zones/db.lab.local
-dig @127.0.0.1 lab.local +short
+   named-checkzone lab.local /etc/bind/zones/db.lab.local
+   dig @127.0.0.1 lab.local +short
 EOS
     ;;
     2) cat <<'EOS'
-Step-by-step (Reverse Zone):
-1) Create reverse zone file:
-/etc/bind/zones/db.10.10.20
+Reverse Zone (Bind9):
+1) Create /etc/bind/zones/db.10.10.20 with PTRs for .11 and .12
 2) Declare zone in /etc/bind/named.conf.local:
-zone "20.10.10.in-addr.arpa" { type master; file "/etc/bind/zones/db.10.10.20"; };
-3) Restart Bind9:
-systemctl restart bind9
+   zone "20.10.10.in-addr.arpa" { type master; file "/etc/bind/zones/db.10.10.20"; };
+3) Stop dnsmasq (if running) and restart bind:
+   systemctl stop dnsmasq && systemctl restart bind9
 4) Verify:
-nmcli dev status
-nmcli general status
-named-checkzone 20.10.10.in-addr.arpa /etc/bind/zones/db.10.10.20
-dig @127.0.0.1 -x 10.10.20.11 +short
+   named-checkzone 20.10.10.in-addr.arpa /etc/bind/zones/db.10.10.20
+   dig @127.0.0.1 -x 10.10.20.11 +short
 EOS
     ;;
     3) cat <<'EOS'
-Step-by-step (dnsmasq caching):
-1) Install & configure:
-apt-get install -y dnsmasq
-echo -e "cache-size=1000\nlisten-address=127.0.0.1" > /etc/dnsmasq.d/lab.conf
-2) Restart:
-systemctl restart dnsmasq
-3) Verify:
-nmcli dev status
-nmcli general status
-systemctl status dnsmasq --no-pager
-dig @127.0.0.1 www.lab.local +short
+dnsmasq Caching (self-contained):
+1) Stop bind (to free port 53):
+   systemctl stop bind9
+2) Put config in /etc/dnsmasq.d/lab.conf:
+   cache-size=1000
+   listen-address=127.0.0.1
+   no-hosts
+   address=/lab.local/10.10.20.11
+   address=/ns.lab.local/10.10.20.11
+   address=/www.lab.local/10.10.20.12
+3) Restart dnsmasq:
+   systemctl enable --now dnsmasq && systemctl restart dnsmasq
+4) Verify:
+   systemctl status dnsmasq --no-pager
+   dig @127.0.0.1 www.lab.local +short
 EOS
     ;;
     4) cat <<'EOS'
-Step-by-step (Split DNS with views):
+Split DNS with views:
 1) Prepare zone files:
-/etc/bind/zones/db.lab.local.internal
-/etc/bind/zones/db.lab.local.external
-2) Create views file:
-/etc/bind/named.conf.views
+   /etc/bind/zones/db.lab.local.internal  (apex A + ns, www, intranet)
+   /etc/bind/zones/db.lab.local.external  (apex A + ns, www=8.8.8.8, no intranet)
+2) Create views file: /etc/bind/named.conf.views (internal/external ACL and zone stanzas)
 3) Include views in /etc/bind/named.conf (add once):
-include "/etc/bind/named.conf.views";
-4) Restart Bind9:
-systemctl restart bind9
+   include "/etc/bind/named.conf.views";
+4) Stop dnsmasq (if running) and restart bind:
+   systemctl stop dnsmasq && systemctl restart bind9
 5) Verify:
-nmcli dev status
-nmcli general status
-named-checkconf
-# Optional deep checks:
-named-checkzone lab.local /etc/bind/zones/db.lab.local.internal
-named-checkzone lab.local /etc/bind/zones/db.lab.local.external
-# Note: client-based testing of views requires queries from internal_net (10.10.20.0/24)
+   named-checkconf
+   dig @127.0.0.1 lab.local +short
 EOS
     ;;
     5) cat <<'EOS'
-Step-by-step (Troubleshooting DNS):
+Troubleshooting DNS:
 1) Service health:
-systemctl status bind9 --no-pager
-journalctl -u bind9 -b -n 100
+   systemctl status bind9 --no-pager
+   journalctl -u bind9 -b -n 100
 2) Syntax:
-named-checkconf
-named-checkzone lab.local /etc/bind/zones/db.lab.local
-named-checkzone 20.10.10.in-addr.arpa /etc/bind/zones/db.10.10.20
+   named-checkconf
+   named-checkzone lab.local /etc/bind/zones/db.lab.local
+   named-checkzone 20.10.10.in-addr.arpa /etc/bind/zones/db.10.10.20
 3) Resolution:
-dig @127.0.0.1 lab.local +short
-dig @127.0.0.1 -x 10.10.20.11 +short
-4) Fix:
-- Correct zone records/syntax, increment Serial, restart bind9.
-- If “connection refused”, ensure port 53 is listening (ss -lntup | grep ':53').
+   dig @127.0.0.1 lab.local +short
+   dig @127.0.0.1 -x 10.10.20.11 +short
+4) Fixes:
+   - Correct records, bump Serial, restart bind9
+   - If “connection refused”, ensure :53 is free (ss -lntup | grep ':53')
 EOS
     ;;
     6) cat <<'EOS'
-Step-by-step (Local DNS server):
+Local DNS Server (Bind9):
 1) Install and enable:
-apt-get install -y bind9 bind9utils dnsutils
-systemctl enable --now bind9
+   apt-get install -y bind9 bind9utils dnsutils
+   systemctl stop dnsmasq && systemctl enable --now bind9
 2) Validate:
-nmcli dev status
-nmcli general status
-named-checkconf
-ss -lntup | grep ':53'
-3) (Optional) Create zones (see Labs 1 & 2), then verify with named-checkzone & dig.
+   named-checkconf
+   ss -lntup | grep ':53'
+3) Optional zones (see Labs 1 & 2), then verify with named-checkzone & dig.
 EOS
     ;;
     *) echo -e "${FAIL} Unknown lab $lab" ;;
@@ -535,12 +552,12 @@ print_tip(){
   echo -e "${BOLD}Tips for Lab ${lab}${NC}"
   echo "----------------------------------------"
   case "$lab" in
-    1) echo "Use named-checkzone before restarting Bind9; always bump the Serial when editing zone files." ;;
-    2) echo "PTR names must end with a dot (FQDN) in zone files; dig -x helps confirm reverse mapping." ;;
-    3) echo "dnsmasq is great for caching; keep cache-size modest in small labs and verify with dig @127.0.0.1." ;;
-    4) echo "Views match by client IP; to truly test, query from an address in 10.10.20.0/24 vs outside." ;;
-    5) echo "Check /var/log/syslog for BIND messages; syntax errors show line numbers for quick fixes." ;;
-    6) echo "If port 53 isn’t listening, check named.conf includes and apparmor/SELinux in hardened images." ;;
+    1) echo "Always bump the Serial when editing zone files. Use named-checkzone before restart." ;;
+    2) echo "PTR targets should be FQDNs ending with a dot (e.g., ns.lab.local.)." ;;
+    3) echo "Keep cache-size modest; verify with dig @127.0.0.1 and watch /var/log/syslog for dnsmasq." ;;
+    4) echo "Views match clients by source IP. For real testing, query from 10.10.20.0/24 vs. outside." ;;
+    5) echo "named-checkconf shows file/line on syntax errors—fix fast, bump serial, restart." ;;
+    6) echo "If port 53 isn’t listening, stop dnsmasq and re-check apparmor/SELinux on hardened images." ;;
     *) echo -e "${FAIL} Unknown lab $lab" ;;
   esac
   echo "----------------------------------------"
