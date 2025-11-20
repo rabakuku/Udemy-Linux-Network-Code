@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Section 4 - DNS & Name Resolution Labs (easier version)
+# Section 4 - DNS & Name Resolution Labs (easier version, with step-by-step Solutions)
 # Labs:
 # 1) Forward Zone (Bind9): lab.local with apex A + ns/www
 # 2) Reverse Zone (Bind9): 10.10.20.0/24
@@ -61,7 +61,6 @@ write_file(){ # write_file <path> <mode> ; content from stdin
 }
 
 ensure_packages(){
-  # Bind & utilities, dnsmasq, dig
   apt-get update -y
   DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends bind9 bind9utils dnsutils dnsmasq
 }
@@ -447,7 +446,7 @@ EOF
 }
 
 # =========================
-# SOLUTIONS (step-by-step, simplified)
+# SOLUTIONS (fully step-by-step with all commands & files)
 # =========================
 print_solution(){
   local lab="$1"
@@ -455,88 +454,290 @@ print_solution(){
   echo "----------------------------------------"
   case "$lab" in
     1) cat <<'EOS'
-Forward Zone (Bind9):
-1) Create /etc/bind/zones/db.lab.local with apex A + ns/www
-2) Declare zone in /etc/bind/named.conf.local:
-   zone "lab.local" { type master; file "/etc/bind/zones/db.lab.local"; };
-3) Stop dnsmasq (if running) and restart bind:
-   systemctl stop dnsmasq && systemctl restart bind9
-4) Verify:
-   named-checkzone lab.local /etc/bind/zones/db.lab.local
-   dig @127.0.0.1 lab.local +short
+# Lab 1 — Forward Zone (Bind9) — Step-by-step
+
+## 1) Install packages
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y bind9 bind9utils dnsutils
+
+## 2) Stop dnsmasq (avoid port 53 conflicts)
+sudo systemctl stop dnsmasq
+
+## 3) Create the forward zone file with apex A + ns + www
+sudo mkdir -p /etc/bind/zones
+sudo tee /etc/bind/zones/db.lab.local >/dev/null <<'ZONE'
+$TTL 604800
+@   IN  SOA ns.lab.local. admin.lab.local. (
+        3        ; Serial
+        604800   ; Refresh
+        86400    ; Retry
+        2419200  ; Expire
+        604800 ) ; Negative Cache TTL
+;
+@       IN  NS  ns.lab.local.
+@       IN  A   10.10.20.11
+ns      IN  A   10.10.20.11
+www     IN  A   10.10.20.12
+ZONE
+
+## 4) Declare the zone in named.conf.local (only once)
+if ! grep -q 'zone "lab.local"' /etc/bind/named.conf.local 2>/dev/null; then
+  sudo tee -a /etc/bind/named.conf.local >/dev/null <<'CONF'
+zone "lab.local" {
+  type master;
+  file "/etc/bind/zones/db.lab.local";
+};
+CONF
+fi
+
+## 5) Validate syntax before restart
+sudo named-checkzone lab.local /etc/bind/zones/db.lab.local
+
+## 6) Restart BIND
+sudo systemctl restart bind9
+sudo systemctl status bind9 --no-pager
+
+## 7) Verify resolution
+dig @127.0.0.1 lab.local +short
+dig @127.0.0.1 ns.lab.local +short
+dig @127.0.0.1 www.lab.local +short
+
+## 8) Run the checker
+sudo section4-labs.sh 1 check
 EOS
     ;;
     2) cat <<'EOS'
-Reverse Zone (Bind9):
-1) Create /etc/bind/zones/db.10.10.20 with PTRs for .11 and .12
-2) Declare zone in /etc/bind/named.conf.local:
-   zone "20.10.10.in-addr.arpa" { type master; file "/etc/bind/zones/db.10.10.20"; };
-3) Stop dnsmasq (if running) and restart bind:
-   systemctl stop dnsmasq && systemctl restart bind9
-4) Verify:
-   named-checkzone 20.10.10.in-addr.arpa /etc/bind/zones/db.10.10.20
-   dig @127.0.0.1 -x 10.10.20.11 +short
+# Lab 2 — Reverse Zone (Bind9) — Step-by-step
+
+## 1) Install packages
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y bind9 bind9utils dnsutils
+
+## 2) Stop dnsmasq (avoid port 53 conflicts)
+sudo systemctl stop dnsmasq
+
+## 3) Create the reverse zone file for 10.10.20.0/24
+sudo mkdir -p /etc/bind/zones
+sudo tee /etc/bind/zones/db.10.10.20 >/dev/null <<'ZONE'
+$TTL 604800
+@   IN  SOA ns.lab.local. admin.lab.local. (
+        3
+        604800
+        86400
+        2419200
+        604800 )
+;
+@       IN  NS  ns.lab.local.
+11      IN  PTR ns.lab.local.
+12      IN  PTR www.lab.local.
+ZONE
+
+## 4) Declare the reverse zone in named.conf.local (only once)
+if ! grep -q 'zone "20.10.10.in-addr.arpa"' /etc/bind/named.conf.local 2>/dev/null; then
+  sudo tee -a /etc/bind/named.conf.local >/dev/null <<'CONF'
+zone "20.10.10.in-addr.arpa" {
+  type master;
+  file "/etc/bind/zones/db.10.10.20";
+};
+CONF
+fi
+
+## 5) Validate syntax before restart
+sudo named-checkzone 20.10.10.in-addr.arpa /etc/bind/zones/db.10.10.20
+
+## 6) Restart BIND
+sudo systemctl restart bind9
+sudo systemctl status bind9 --no-pager
+
+## 7) Verify reverse resolution
+dig @127.0.0.1 -x 10.10.20.11 +short
+dig @127.0.0.1 -x 10.10.20.12 +short
+
+## 8) Run the checker
+sudo section4-labs.sh 2 check
 EOS
     ;;
     3) cat <<'EOS'
-dnsmasq Caching (self-contained):
-1) Stop bind (to free port 53):
-   systemctl stop bind9
-2) Put config in /etc/dnsmasq.d/lab.conf:
-   cache-size=1000
-   listen-address=127.0.0.1
-   no-hosts
-   address=/lab.local/10.10.20.11
-   address=/ns.lab.local/10.10.20.11
-   address=/www.lab.local/10.10.20.12
-3) Restart dnsmasq:
-   systemctl enable --now dnsmasq && systemctl restart dnsmasq
-4) Verify:
-   systemctl status dnsmasq --no-pager
-   dig @127.0.0.1 www.lab.local +short
+# Lab 3 — DNS Caching with dnsmasq (self-contained) — Step-by-step
+
+## 1) Install dnsmasq
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y dnsmasq
+
+## 2) Stop bind9 (dnsmasq will listen on port 53 @127.0.0.1)
+sudo systemctl stop bind9
+
+## 3) Create dnsmasq config (cache + local lab records)
+sudo tee /etc/dnsmasq.d/lab.conf >/dev/null <<'CONF'
+# DNS caching lab config (self-contained)
+cache-size=1000
+listen-address=127.0.0.1
+no-hosts
+
+# Local lab records so checks succeed
+address=/lab.local/10.10.20.11
+address=/ns.lab.local/10.10.20.11
+address=/www.lab.local/10.10.20.12
+CONF
+
+## 4) Enable & restart dnsmasq
+sudo systemctl enable --now dnsmasq
+sudo systemctl restart dnsmasq
+sudo systemctl status dnsmasq --no-pager
+
+## 5) Verify resolution & caching
+dig @127.0.0.1 lab.local +short
+dig @127.0.0.1 www.lab.local +short
+
+## 6) Run the checker
+sudo section4-labs.sh 3 check
 EOS
     ;;
     4) cat <<'EOS'
-Split DNS with views:
-1) Prepare zone files:
-   /etc/bind/zones/db.lab.local.internal  (apex A + ns, www, intranet)
-   /etc/bind/zones/db.lab.local.external  (apex A + ns, www=8.8.8.8, no intranet)
-2) Create views file: /etc/bind/named.conf.views (internal/external ACL and zone stanzas)
-3) Include views in /etc/bind/named.conf (add once):
-   include "/etc/bind/named.conf.views";
-4) Stop dnsmasq (if running) and restart bind:
-   systemctl stop dnsmasq && systemctl restart bind9
-5) Verify:
-   named-checkconf
-   dig @127.0.0.1 lab.local +short
+# Lab 4 — Split DNS (Bind9 views: internal/external) — Step-by-step
+
+## 1) Install packages
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y bind9 bind9utils dnsutils
+
+## 2) Stop dnsmasq (avoid port 53 conflicts)
+sudo systemctl stop dnsmasq
+
+## 3) Create INTERNAL view zone file
+sudo mkdir -p /etc/bind/zones
+sudo tee /etc/bind/zones/db.lab.local.internal >/dev/null <<'ZONE'
+$TTL 604800
+@   IN  SOA ns.lab.local. admin.lab.local. (
+        5
+        604800
+        86400
+        2419200
+        604800 )
+;
+@         IN  NS  ns.lab.local.
+@         IN  A   10.10.20.11
+ns        IN  A   10.10.20.11
+www       IN  A   10.10.20.12
+intranet  IN  A   10.10.20.13
+ZONE
+
+## 4) Create EXTERNAL view zone file
+sudo tee /etc/bind/zones/db.lab.local.external >/dev/null <<'ZONE'
+$TTL 604800
+@   IN  SOA ns.lab.local. admin.lab.local. (
+        5
+        604800
+        86400
+        2419200
+        604800 )
+;
+@         IN  NS  ns.lab.local.
+@         IN  A   10.10.20.11
+ns        IN  A   10.10.20.11
+www       IN  A   8.8.8.8
+# intranet intentionally NOT defined externally
+ZONE
+
+## 5) Create views file
+sudo tee /etc/bind/named.conf.views >/dev/null <<'CONF'
+acl internal_net { 10.10.20.0/24; };
+
+view "internal" {
+  match-clients { internal_net; };
+  recursion yes;
+  zone "lab.local" {
+    type master;
+    file "/etc/bind/zones/db.lab.local.internal";
+  };
+};
+
+view "external" {
+  match-clients { any; };
+  recursion no;
+  zone "lab.local" {
+    type master;
+    file "/etc/bind/zones/db.lab.local.external";
+  };
+};
+CONF
+
+## 6) Ensure main named.conf includes the views file (only once)
+if ! grep -qF '/etc/bind/named.conf.views' /etc/bind/named.conf 2>/dev/null; then
+  echo 'include "/etc/bind/named.conf.views";' | sudo tee -a /etc/bind/named.conf >/dev/null
+fi
+
+## 7) Validate configuration & restart bind9
+sudo named-checkconf
+sudo systemctl restart bind9
+sudo systemctl status bind9 --no-pager
+
+## 8) Basic verification (loopback)
+dig @127.0.0.1 lab.local +short
+
+## 9) Optional deeper checks (syntax)
+sudo named-checkzone lab.local /etc/bind/zones/db.lab.local.internal
+sudo named-checkzone lab.local /etc/bind/zones/db.lab.local.external
+
+## 10) Run the checker
+sudo section4-labs.sh 4 check
 EOS
     ;;
     5) cat <<'EOS'
-Troubleshooting DNS:
-1) Service health:
-   systemctl status bind9 --no-pager
-   journalctl -u bind9 -b -n 100
-2) Syntax:
-   named-checkconf
-   named-checkzone lab.local /etc/bind/zones/db.lab.local
-   named-checkzone 20.10.10.in-addr.arpa /etc/bind/zones/db.10.10.20
-3) Resolution:
-   dig @127.0.0.1 lab.local +short
-   dig @127.0.0.1 -x 10.10.20.11 +short
-4) Fixes:
-   - Correct records, bump Serial, restart bind9
-   - If “connection refused”, ensure :53 is free (ss -lntup | grep ':53')
+# Lab 5 — Troubleshooting DNS (Bind9) — Step-by-step
+
+## 1) Confirm service health
+sudo systemctl status bind9 --no-pager || true
+sudo journalctl -u bind9 -b -n 100 || true
+
+## 2) Validate configuration & zones
+sudo named-checkconf
+# If you built Lab 1:
+sudo named-checkzone lab.local /etc/bind/zones/db.lab.local || true
+# If you built Lab 2:
+sudo named-checkzone 20.10.10.in-addr.arpa /etc/bind/zones/db.10.10.20 || true
+
+## 3) Test resolution
+dig @127.0.0.1 lab.local +short
+dig @127.0.0.1 ns.lab.local +short
+dig @127.0.0.1 www.lab.local +short
+dig @127.0.0.1 -x 10.10.20.11 +short
+
+## 4) Common fixes
+# - Correct records (A/PTR), ensure FQDNs end with a dot in zone files.
+# - Bump the Serial after edits; then restart bind9:
+sudo systemctl restart bind9
+# - If "connection refused", ensure port 53 is not taken by dnsmasq:
+sudo ss -lntup | grep ':53' || sudo netstat -ln | grep ':53'
+sudo systemctl stop dnsmasq && sudo systemctl restart bind9
+
+## 5) Run the checker
+sudo section4-labs.sh 5 check
 EOS
     ;;
     6) cat <<'EOS'
-Local DNS Server (Bind9):
-1) Install and enable:
-   apt-get install -y bind9 bind9utils dnsutils
-   systemctl stop dnsmasq && systemctl enable --now bind9
-2) Validate:
-   named-checkconf
-   ss -lntup | grep ':53'
-3) Optional zones (see Labs 1 & 2), then verify with named-checkzone & dig.
+# Lab 6 — Local DNS Server (Bind9) — Step-by-step
+
+## 1) Install & enable bind9
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y bind9 bind9utils dnsutils
+sudo systemctl stop dnsmasq
+sudo systemctl enable --now bind9
+
+## 2) Validate config & port
+sudo named-checkconf
+sudo ss -lntup | grep ':53' || sudo netstat -ln | grep ':53'
+
+## 3) (Optional) Create zones now (use Lab 1 & 2 steps):
+# Forward: /etc/bind/zones/db.lab.local
+# Reverse: /etc/bind/zones/db.10.10.20
+# And declare zones in /etc/bind/named.conf.local
+
+## 4) Verify resolution (if zones created)
+dig @127.0.0.1 lab.local +short
+dig @127.0.0.1 -x 10.10.20.11 +short
+
+## 5) Run the checker
+sudo section4-labs.sh 6 check
 EOS
     ;;
     *) echo -e "${FAIL} Unknown lab $lab" ;;
