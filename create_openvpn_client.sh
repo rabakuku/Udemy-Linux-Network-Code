@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script to create OpenVPN client configuration using Easy-RSA
+# Script to create OpenVPN client configuration using existing Easy-RSA PKI
 # Usage: ./create_openvpn_client.sh <client_name> <output_directory>
 
 set -e
@@ -12,29 +12,25 @@ fi
 
 CLIENT_NAME=$1
 OUTPUT_DIR=$2
-EASYRSA_DIR=~/openvpn-ca
+EASYRSA_DIR=/etc/openvpn/pki/easyrsa
 CA_CERT=/etc/openvpn/ca.crt
 TLS_KEY=/etc/openvpn/ta.key
 
 # Check if Easy-RSA directory exists
 if [ ! -d "$EASYRSA_DIR" ]; then
     echo "Easy-RSA directory not found at $EASYRSA_DIR"
-    echo "Installing Easy-RSA and setting up PKI..."
-
-    sudo apt update
-    sudo apt install easy-rsa -y
-
-    make-cadir $EASYRSA_DIR
-    cd $EASYRSA_DIR
-
-    ./easyrsa init-pki
-    echo "Building CA..."
-    ./easyrsa build-ca nopass
-else
-    cd $EASYRSA_DIR
+    exit 1
 fi
 
-# Generate client certificate and key
+cd $EASYRSA_DIR
+
+# Ensure PKI exists
+if [ ! -d "$EASYRSA_DIR/pki" ]; then
+    echo "PKI directory missing in $EASYRSA_DIR"
+    exit 1
+fi
+
+# Generate client certificate and key using existing CA
 ./easyrsa gen-req $CLIENT_NAME nopass
 ./easyrsa sign-req client $CLIENT_NAME
 
