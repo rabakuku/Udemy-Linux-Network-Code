@@ -547,6 +547,17 @@ sudo ln -sf /etc/openvpn/pki/easyrsa/pki/private/server.key /etc/openvpn/server.
 sudo ln -sf /etc/openvpn/pki/easyrsa/pki/dh.pem            /etc/openvpn/dh.pem
 sudo ln -sf /etc/openvpn/pki/ta.key                        /etc/openvpn/ta.key
 
+sudo nano /etc/netplan/10-labs-ens4.yaml
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    ens4:
+      dhcp4: false
+      addresses: [10.10.10.1/24]
+
+netplan apply
+
 ## 5) Create server.conf (bind to ens4, push 1.1.1.1 route)
 ENS4_IP=$(ip -4 addr show ens4 | awk '/inet /{print $2}' | cut -d/ -f1 | head -n1)
 sudo tee /etc/openvpn/server.conf >/dev/null <<CONF
