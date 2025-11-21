@@ -495,11 +495,11 @@ print_list(){
   cat <<EOF
 ${BOLD}Section 5 Labs — OpenVPN SSL VPN${NC}
 1. Configure OpenVPN for SSL VPN (ens4 + 1.1.1.1 loopback)
-2. Troubleshoot — Wrong IP in routing
-3. Troubleshoot — No network configured for remote users
-4. Troubleshoot — Only listening on ens3 instead of ens4
-5. Troubleshoot — Wrong loopback IP
-6. Troubleshoot — Firewall blocking UDP/1194
+2. Troubleshoot — can you get there?
+3. Troubleshoot — what is missing?
+4. Troubleshoot — what's wrong, where are you listening?
+5. Troubleshoot — wrong ip, but which one?
+6. Troubleshoot — Hard one. look for fire....
 
 Usage:
   sudo $0 <lab#> apply
