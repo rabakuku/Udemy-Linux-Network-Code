@@ -13,22 +13,20 @@ fi
 CLIENT_NAME=$1
 OUTPUT_DIR=$2
 EASYRSA_DIR=~/openvpn-ca
-SERVER_DIR=/etc/openvpn
+CA_CERT=/etc/openvpn/ca.crt
+TLS_KEY=/etc/openvpn/ta.key
 
 # Check if Easy-RSA directory exists
 if [ ! -d "$EASYRSA_DIR" ]; then
     echo "Easy-RSA directory not found at $EASYRSA_DIR"
     echo "Installing Easy-RSA and setting up PKI..."
 
-    # Install Easy-RSA
     sudo apt update
     sudo apt install easy-rsa -y
 
-    # Create Easy-RSA directory
     make-cadir $EASYRSA_DIR
     cd $EASYRSA_DIR
 
-    # Initialize PKI and build CA
     ./easyrsa init-pki
     echo "Building CA..."
     ./easyrsa build-ca nopass
@@ -43,13 +41,19 @@ fi
 # Prepare output directory
 mkdir -p $OUTPUT_DIR
 
-# Copy necessary files
+# Copy client cert and key
 cp pki/issued/$CLIENT_NAME.crt $OUTPUT_DIR/
 cp pki/private/$CLIENT_NAME.key $OUTPUT_DIR/
-cp pki/ca.crt $OUTPUT_DIR/
 
-# Check for TLS auth key
-TLS_KEY="$SERVER_DIR/ta.key"
+# Copy CA cert from /etc/openvpn
+if [ -f "$CA_CERT" ]; then
+    cp $CA_CERT $OUTPUT_DIR/
+else
+    echo "CA certificate not found at $CA_CERT"
+    exit 1
+fi
+
+# Copy TLS auth key if present
 if [ -f "$TLS_KEY" ]; then
     cp $TLS_KEY $OUTPUT_DIR/
 fi
@@ -72,7 +76,7 @@ auth SHA256
 verb 3
 
 <ca>
-$(cat $OUTPUT_DIR/ca.crt)
+$(cat $CA_CERT)
 </ca>
 
 <cert>
@@ -87,8 +91,8 @@ EOF
 if [ -f "$TLS_KEY" ]; then
     echo "key-direction 1" >> $CONFIG_FILE
     echo "<tls-auth>" >> $CONFIG_FILE
-    cat $OUTPUT_DIR/ta.key >> $CONFIG_FILE
+    cat $TLS_KEY >> $CONFIG_FILE
     echo "</tls-auth>" >> $CONFIG_FILE
 fi
 
-echo "Client configuration and keys have been created in $OUTPUT_DIR"
+echo "Client configuration created: $CONFIG_FILE"
