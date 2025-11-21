@@ -1,9 +1,4 @@
-**Keeping the code concise**
-
-Okay, I definitely don’t want to make this too long, but I still need to include all the necessary code. It’s one of those balancing acts where short and sweet doesn’t always work when it’s technical. I’ll focus on ensuring that I include everything crucial but keep the explanations and extras to a minimum. I think it's best to make sure that the code is functional and complete, but I’ll avoid unnecessary complexity.
 ### Complete script for section 5 openvpn labs
-
-```bash
 #!/usr/bin/env bash
 # Section 5 - SSL VPN (OpenVPN) Labs
 # Labs:
@@ -759,4 +754,3 @@ main(){
   esac
 }
 main "$@"
-```
