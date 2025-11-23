@@ -1,94 +1,57 @@
-#!/bin/bash
+SERVER_HOST="10.10.10.1"
+CA="/etc/openvpn/ca.crt"
+CRT="/root/openvpn-ca/pki/issued/client1.crt"     # adjust if different
+KEY="/root/openvpn-ca/pki/private/client1.key"    # adjust if different
+TA="/etc/openvpn/ta.key"
 
-# Script to create OpenVPN client configuration using existing Easy-RSA PKI
-# Usage: ./create_openvpn_client.sh <client_name> <output_directory>
-
-set -e
-
-if [ "$#" -lt 2 ]; then
-    echo "Usage: $0 <client_name> <output_directory>"
-    exit 1
-fi
-
-CLIENT_NAME=$1
-OUTPUT_DIR=$2
-EASYRSA_DIR=/etc/openvpn/pki/easyrsa
-CA_CERT=/etc/openvpn/ca.crt
-TLS_KEY=/etc/openvpn/ta.key
-
-# Check if Easy-RSA directory exists
-if [ ! -d "$EASYRSA_DIR" ]; then
-    echo "Easy-RSA directory not found at $EASYRSA_DIR"
-    exit 1
-fi
-
-cd $EASYRSA_DIR
-
-# Ensure PKI exists
-if [ ! -d "$EASYRSA_DIR/pki" ]; then
-    echo "PKI directory missing in $EASYRSA_DIR"
-    exit 1
-fi
-
-# Generate client certificate and key using existing CA
-./easyrsa gen-req $CLIENT_NAME nopass
-./easyrsa sign-req client $CLIENT_NAME
-
-# Prepare output directory
-mkdir -p $OUTPUT_DIR
-
-# Copy client cert and key
-cp pki/issued/$CLIENT_NAME.crt $OUTPUT_DIR/
-cp pki/private/$CLIENT_NAME.key $OUTPUT_DIR/
-
-# Copy CA cert from /etc/openvpn
-if [ -f "$CA_CERT" ]; then
-    cp $CA_CERT $OUTPUT_DIR/
-else
-    echo "CA certificate not found at $CA_CERT"
-    exit 1
-fi
-
-# Copy TLS auth key if present
-if [ -f "$TLS_KEY" ]; then
-    cp $TLS_KEY $OUTPUT_DIR/
-fi
-
-# Create client configuration file
-CONFIG_FILE="$OUTPUT_DIR/$CLIENT_NAME.ovpn"
-
-cat > $CONFIG_FILE <<EOF
+cat > client.ovpn <<'EOF'
 client
 dev tun
 proto udp
-remote YOUR_SERVER_IP 1194
+remote __SERVER__ 1194
 resolv-retry infinite
 nobind
 persist-key
 persist-tun
+
 remote-cert-tls server
-cipher AES-256-CBC
+tls-version-min 1.2
 auth SHA256
-verb 3
+data-ciphers AES-256-GCM:AES-128-GCM
+data-ciphers-fallback AES-256-CBC
+verb 4
+
+# HMAC key: server=0, client=1
+tls-auth ta.key 1
 
 <ca>
-$(cat $CA_CERT)
+__CA__
 </ca>
 
 <cert>
-$(cat $OUTPUT_DIR/$CLIENT_NAME.crt)
+__CRT__
 </cert>
 
 <key>
-$(cat $OUTPUT_DIR/$CLIENT_NAME.key)
+__KEY__
 </key>
+
+<tls-auth>
+__TA__
+</tls-auth>
 EOF
 
-if [ -f "$TLS_KEY" ]; then
-    echo "key-direction 1" >> $CONFIG_FILE
-    echo "<tls-auth>" >> $CONFIG_FILE
-    cat $TLS_KEY >> $CONFIG_FILE
-    echo "</tls-auth>" >> $CONFIG_FILE
-fi
+# Fill placeholders with clean PEM content (no human-readable dumps)
+sed -i "s/__SERVER__/${SERVER_HOST}/" client.ovpn
+awk -v ca="$(cat "$CA")" \
+    -v crt="$(openssl x509 -in "$CRT" -outform pem)" \
+    -v key="$(cat "$KEY")" \
+    -v ta="$(cat "$TA")" \
+    '{
+      gsub(/__CA__/, ca);
+      gsub(/__CRT__/, crt);
+      gsub(/__KEY__/, key);
+      gsub(/__TA__/, ta);
+      print
+    }' client.ovpn > client.ovpn.tmp && mv client.ovpn.tmp client.ovpn
 
-echo "Client configuration created: $CONFIG_FILE"
