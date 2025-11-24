@@ -1,0 +1,5 @@
+How the config needs to be for all the labs:
+- Loopback needs to have ip 1.1.1.1
+- SSL Client should be able to ping 1.1.1.1
+- ens4 interface IP needs to be 10.10.10.1
+- ens4 needs to be listening on port 1194
