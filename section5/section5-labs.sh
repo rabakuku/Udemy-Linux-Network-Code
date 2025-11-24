@@ -231,6 +231,14 @@ cert ${OPENVPN_DIR}/server.crt
 key ${OPENVPN_DIR}/server.key
 dh ${OPENVPN_DIR}/dh.pem
 tls-auth ${OPENVPN_DIR}/ta.key 0
+auth SHA256
+
+# No client certs required; authenticate via PAM
+client-cert-not-required
+--verify-client-cert none
+username-as-common-name
+plugin /usr/lib/x86_64-linux-gnu/openvpn/plugins/openvpn-plugin-auth-pam.so login
+
 EOF
 
   enable_openvpn
@@ -264,6 +272,13 @@ cert ${OPENVPN_DIR}/server.crt
 key ${OPENVPN_DIR}/server.key
 dh ${OPENVPN_DIR}/dh.pem
 tls-auth ${OPENVPN_DIR}/ta.key 0
+auth SHA256
+
+# No client certs required; authenticate via PAM
+client-cert-not-required
+--verify-client-cert none
+username-as-common-name
+plugin /usr/lib/x86_64-linux-gnu/openvpn/plugins/openvpn-plugin-auth-pam.so login
 EOF
 
   enable_openvpn
@@ -300,6 +315,14 @@ cert ${OPENVPN_DIR}/server.crt
 key ${OPENVPN_DIR}/server.key
 dh ${OPENVPN_DIR}/dh.pem
 tls-auth ${OPENVPN_DIR}/ta.key 0
+
+auth SHA256
+
+# No client certs required; authenticate via PAM
+client-cert-not-required
+--verify-client-cert none
+username-as-common-name
+plugin /usr/lib/x86_64-linux-gnu/openvpn/plugins/openvpn-plugin-auth-pam.so login
 EOF
 
   enable_openvpn
@@ -333,6 +356,13 @@ cert ${OPENVPN_DIR}/server.crt
 key ${OPENVPN_DIR}/server.key
 dh ${OPENVPN_DIR}/dh.pem
 tls-auth ${OPENVPN_DIR}/ta.key 0
+auth SHA256
+
+# No client certs required; authenticate via PAM
+client-cert-not-required
+--verify-client-cert none
+username-as-common-name
+plugin /usr/lib/x86_64-linux-gnu/openvpn/plugins/openvpn-plugin-auth-pam.so login
 EOF
 
   enable_openvpn
@@ -365,6 +395,13 @@ cert ${OPENVPN_DIR}/server.crt
 key ${OPENVPN_DIR}/server.key
 dh ${OPENVPN_DIR}/dh.pem
 tls-auth ${OPENVPN_DIR}/ta.key 0
+auth SHA256
+
+# No client certs required; authenticate via PAM
+client-cert-not-required
+--verify-client-cert none
+username-as-common-name
+plugin /usr/lib/x86_64-linux-gnu/openvpn/plugins/openvpn-plugin-auth-pam.so login
 EOF
 
   ufw_block_1194
