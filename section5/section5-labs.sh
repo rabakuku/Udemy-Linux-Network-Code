@@ -499,7 +499,7 @@ lab5_check() {
 
 lab6_check() {
   begin_check
-  ufw status | grep -q "1194/udp.*DENY" && miss "UFW denies UDP/1194" || good "UFW not denying UDP/1194"
+  ufw status | grep -q "1194/udp.*DENY" && miss "The Wall" || good "UFW not denying UDP/1194"
   end_check
 }
 
