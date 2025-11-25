@@ -231,6 +231,14 @@ cert ${OPENVPN_DIR}/server.crt
 key ${OPENVPN_DIR}/server.key
 dh ${OPENVPN_DIR}/dh.pem
 tls-auth ${OPENVPN_DIR}/ta.key 0
+auth SHA256
+
+# No client certs required; authenticate via PAM
+client-cert-not-required
+--verify-client-cert none
+username-as-common-name
+plugin /usr/lib/x86_64-linux-gnu/openvpn/plugins/openvpn-plugin-auth-pam.so login
+
 EOF
 
   enable_openvpn
@@ -264,6 +272,13 @@ cert ${OPENVPN_DIR}/server.crt
 key ${OPENVPN_DIR}/server.key
 dh ${OPENVPN_DIR}/dh.pem
 tls-auth ${OPENVPN_DIR}/ta.key 0
+auth SHA256
+
+# No client certs required; authenticate via PAM
+client-cert-not-required
+--verify-client-cert none
+username-as-common-name
+plugin /usr/lib/x86_64-linux-gnu/openvpn/plugins/openvpn-plugin-auth-pam.so login
 EOF
 
   enable_openvpn
@@ -300,6 +315,14 @@ cert ${OPENVPN_DIR}/server.crt
 key ${OPENVPN_DIR}/server.key
 dh ${OPENVPN_DIR}/dh.pem
 tls-auth ${OPENVPN_DIR}/ta.key 0
+
+auth SHA256
+
+# No client certs required; authenticate via PAM
+client-cert-not-required
+--verify-client-cert none
+username-as-common-name
+plugin /usr/lib/x86_64-linux-gnu/openvpn/plugins/openvpn-plugin-auth-pam.so login
 EOF
 
   enable_openvpn
@@ -333,6 +356,13 @@ cert ${OPENVPN_DIR}/server.crt
 key ${OPENVPN_DIR}/server.key
 dh ${OPENVPN_DIR}/dh.pem
 tls-auth ${OPENVPN_DIR}/ta.key 0
+auth SHA256
+
+# No client certs required; authenticate via PAM
+client-cert-not-required
+--verify-client-cert none
+username-as-common-name
+plugin /usr/lib/x86_64-linux-gnu/openvpn/plugins/openvpn-plugin-auth-pam.so login
 EOF
 
   enable_openvpn
@@ -365,6 +395,13 @@ cert ${OPENVPN_DIR}/server.crt
 key ${OPENVPN_DIR}/server.key
 dh ${OPENVPN_DIR}/dh.pem
 tls-auth ${OPENVPN_DIR}/ta.key 0
+auth SHA256
+
+# No client certs required; authenticate via PAM
+client-cert-not-required
+--verify-client-cert none
+username-as-common-name
+plugin /usr/lib/x86_64-linux-gnu/openvpn/plugins/openvpn-plugin-auth-pam.so login
 EOF
 
   ufw_block_1194
@@ -523,7 +560,7 @@ print_solution(){
     1) cat <<'EOS'
 # Lab 1 — Configure OpenVPN for SSL VPN (ens4 + loopback 1.1.1.1)
 
-## 1) Install packages
+##Install packages
 sudo apt-get update -y
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y openvpn easy-rsa iproute2 ufw
 
@@ -535,12 +572,30 @@ sudo mkdir -p /etc/openvpn/pki
 sudo cp -r /usr/share/easy-rsa /etc/openvpn/pki/easyrsa
 cd /etc/openvpn/pki/easyrsa
 sudo ./easyrsa init-pki
-yes "" | sudo ./easyrsa build-ca nopass
+./easyrsa build-ca
 sudo ./easyrsa gen-dh
-sudo ./easyrsa build-server-full server nopass
+sudo ./easyrsa build-server-full server
 sudo openvpn --genkey --secret /etc/openvpn/pki/ta.key
 
-## 4) Link certs/keys
+
+#Generate client certificate request for .ovpn
+#This creates:
+pki/private/client1.key (client private key)
+pki/reqs/client1.req (certificate request)
+./easyrsa gen-req client1 nopass
+
+ #Sign the client certificate
+./easyrsa sign-req client client1
+
+
+#Move them to /etc/openvpn/client/ (optional for organization):
+sudo mkdir -p /etc/openvpn/client
+sudo cp pki/issued/client1.crt /etc/openvpn/client/client.crt
+sudo cp pki/private/client1.key /etc/openvpn/client/client.key
+sudo cp pki/ca.crt /etc/openvpn/ca.crt
+
+
+## 4) Link certs/keys and assign ens4 10.10.10.1 ip 
 sudo ln -sf /etc/openvpn/pki/easyrsa/pki/ca.crt            /etc/openvpn/ca.crt
 sudo ln -sf /etc/openvpn/pki/easyrsa/pki/issued/server.crt /etc/openvpn/server.crt
 sudo ln -sf /etc/openvpn/pki/easyrsa/pki/private/server.key /etc/openvpn/server.key
@@ -558,6 +613,8 @@ network:
 
 netplan apply
 
+
+
 ## 5) Create server.conf (bind to ens4, push 1.1.1.1 route)
 ENS4_IP=$(ip -4 addr show ens4 | awk '/inet /{print $2}' | cut -d/ -f1 | head -n1)
 sudo tee /etc/openvpn/server.conf >/dev/null <<CONF
@@ -566,13 +623,15 @@ proto udp
 dev tun
 user nobody
 group nogroup
-local ${ENS4_IP}
+
 server 10.8.0.0 255.255.255.0
-push "route 1.1.1.1 255.255.255.255"
 topology subnet
+push "route 172.16.1.1 255.255.255.255"
+#push "route 1.1.1.1 255.255.255.255"
 keepalive 10 120
 persist-key
 persist-tun
+
 status /var/log/openvpn-status.log
 verb 3
 ca /etc/openvpn/ca.crt
@@ -580,6 +639,19 @@ cert /etc/openvpn/server.crt
 key /etc/openvpn/server.key
 dh /etc/openvpn/dh.pem
 tls-auth /etc/openvpn/ta.key 0
+
+#tls-crypt /etc/openvpn/ta.key
+tls-version-min 1.2
+data-ciphers AES-256-GCM:AES-128-GCM
+data-ciphers-fallback AES-256-CBC
+dh /etc/openvpn/dh.pem
+auth SHA256
+
+# No client certs required; authenticate via PAM
+client-cert-not-required
+--verify-client-cert none
+username-as-common-name
+plugin /usr/lib/x86_64-linux-gnu/openvpn/plugins/openvpn-plugin-auth-pam.so login
 CONF
 
 ## 6) Start OpenVPN
