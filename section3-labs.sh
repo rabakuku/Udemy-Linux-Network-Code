@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
 # Section 3 - VLANs & Trunk/Access Labs (Two-Server Labs, role 1/2)
-# Labs:
-# 1) Creating VLAN Interfaces (CONFIG): vlan10 on ens4 + static IP (role-based)
-# 2) Creating VLAN Interfaces (CONFIG): vlan20 on ens4 + static IP (role-based)
-# 3) Creating VLAN Interfaces (TROUBLESHOOT): validate vlan10/vlan20 existence, IDs, IPs, NM status
-# 4) Trunk Ports (CONFIG): vlan50 & vlan60 active on ens4 (+ optional peer pings)   <-- UPDATED
-# 5) Access Ports (CONFIG): untagged access connection on ens4 + static IP (role-based)
-# 6) Trunk/Access (TROUBLESHOOT): detect mode & validate expected state (+ optional peer pings)
-
 # ---- Run-as-root check BEFORE set -e / trap ----
 if (( EUID != 0 )); then
   echo -e "\e[33m[!] Please run as root: sudo $0 $*\e[0m"
