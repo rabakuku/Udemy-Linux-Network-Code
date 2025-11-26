@@ -2,13 +2,6 @@
 #!/usr/bin/env bash
 # ============================================================
 # Section 5 — SSL VPN (OpenVPN) Labs (PAM user auth only)
-# - Idempotent Easy-RSA for server TLS (no client certs required)
-# - Conditional 'local' directive
-# - Modern ta.key generation (OpenVPN 2.6+)
-# - Smart unit/config-path detection (prefers /etc/openvpn/server.conf)
-# - NO subtitles printed on apply
-# - Client issuer outputs username/password .ovpn (no <cert>/<key>)
-# - Interactive menu + Solutions
 # ============================================================
 
 # ---- Root check ----
