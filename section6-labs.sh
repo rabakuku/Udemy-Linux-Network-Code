@@ -2,15 +2,6 @@
 #!/usr/bin/env bash
 # ============================================================
 # Section 6 — IPsec / StrongSwan Tunnel Labs (Interactive Menu)
-# Labs 1–4: Regular IPsec (Libreswan; no StrongSwan)
-# Labs 5–8: StrongSwan-based
-# Mimics Section 5 menu: apply / check / solutions.
-# Requirements honored:
-#  - Titles are generic; details only in tips/solutions
-#  - Config labs (1 & 5): apply prints steps (does NOT change system)
-#  - Troubleshooting labs (2–4, 6–8): apply writes broken configs for students to fix
-#  - Loopbacks are routed via the tunnel; check includes pinging peer loopback
-#  - Every solution includes the netplan YAML blocks for ens4 and lo
 # ============================================================
 
 # ---- Root check ----
@@ -94,10 +85,10 @@ iface_ip() {
 
 # ---- Package / service helpers ----
 ensure_libreswan() {
-  # Libreswan conflicts with strongswan-starter on Ubuntu/Debian; stop strongswan if present
+  # Libreswan conflicts with strongswan-starter; stop strongswan if present
   q systemctl stop "$STRONG_UNIT"
   q apt-get update -y
-  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libreswan iproute2 ufw
+  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libreswan iproute2 ufw libnss3-tools
   # Seed minimal starter
   if [[ ! -f "$LIBRE_MAIN" ]] || ! grep -q 'include /etc/ipsec.d/*.conf' "$LIBRE_MAIN"; then
     write_file "$LIBRE_MAIN" 0644 <<'EOF'
@@ -200,18 +191,20 @@ EOF
   fi
 }
 
-# ---- Lab list (generic titles only) ----
+# ---- Lab list (generic titles, with Troubleshooting numbering) ----
 print_list() {
   cat <<'EOF'
 Section 6 Labs — IPsec/StrongSwan Tunnels
-1. Basic Tunnel Setup
-2. Troubleshooting Scenario 1
-3. Troubleshooting Scenario 2
-4. Troubleshooting Scenario 3
-5. Alternate Tunnel Setup (StrongSwan)
-6. Troubleshooting Scenario 4 (StrongSwan)
-7. Troubleshooting Scenario 5 (StrongSwan)
-8. Troubleshooting Scenario 6 (StrongSwan)
+1. Scenario One
+2. Scenario Two
+3. Troubleshooting 1
+4. Troubleshooting 2
+5. Troubleshooting 3
+6. Scenario Six
+7. Scenario Seven
+8. Troubleshooting 4
+9. Troubleshooting 5
+10. Troubleshooting 6
 
 Usage:
   sudo section6-labs.sh <lab#> apply
@@ -228,32 +221,44 @@ EOF
 # APPLY (config vs troubleshooting)
 # ============================================================
 
-# Labs 1–4: Regular IPsec (Libreswan). Config lab: no changes applied.
+# Lab 1: Regular IPsec PSK (Libreswan) — no changes applied
 lab1_apply() {
-  echo "Lab 1 (Config): Regular IPsec tunnel — no changes applied."
-  echo "What to do:"
+  echo "Lab 1 (Config): Review steps below (no changes applied)."
   print_netplan_yaml 1
   print_netplan_yaml 2
   cat <<EOF
-- Create a site-to-site IPsec tunnel protecting ${S1_LO}/32 <-> ${S2_LO}/32 via ${IFACE} (${S1_IF} <-> ${S2_IF}).
-- Use IKEv2 with PSK, AES-256 for IKE/ESP, SHA-256 integrity, DH group modp2048 (enable PFS).
-- Open UDP/500 and UDP/4500; permit ESP (proto 50) if filtered.
-- Set auto=start and configure DPD restart.
+- Build a site-to-site IPsec tunnel with IKEv2 PSK, AES-256/SHA-256, DH modp2048 (PFS).
+- Protect ${S1_LO}/32 <-> ${S2_LO}/32 via ${IFACE} (${S1_IF} <-> ${S2_IF}).
+- Allow UDP/500 & UDP/4500; ensure DPD restart and auto=start.
 EOF
 }
 
+# Lab 2: Regular IPsec RSA/cert (Libreswan) — no changes applied
 lab2_apply() {
-  echo "Lab 2 (Troubleshooting): Applying wrong tunnel ID and encryption mismatch."
+  echo "Lab 2 (Config): Review steps below (no changes applied)."
+  print_netplan_yaml 1
+  print_netplan_yaml 2
+  cat <<EOF
+- Site-to-site IPsec with IKEv2 RSA/cert authentication (no StrongSwan).
+- Use AES-256/SHA-256, DH modp2048 (PFS), protect ${S1_LO}/32 <-> ${S2_LO}/32.
+- Create CA + host certs, import into Libreswan's NSS DB; authby=rsasig; leftrsasigkey/right rsasig key as %cert.
+- Open UDP/500 & UDP/4500; auto=start.
+EOF
+}
+
+# Lab 3: Troubleshooting (wrong tunnel IP + mismatched encryption) — Libreswan
+lab3_apply() {
+  echo "Lab 3 (Troubleshooting): applying wrong tunnel identity + weak proposals."
   ensure_libreswan
   write_file "$LIBRE_CONN" 0644 <<EOF
-conn s6-lab2
+conn s6-lab3
   type=tunnel
   keyexchange=ikev2
   left=${S1_IF}
   leftid=${S1_IF}
   leftsubnet=${S1_LO}/32
   right=${S2_IF}
-  rightid=10.1.2.2          # WRONG ID (mismatch)
+  rightid=10.1.2.2          # WRONG: tunnel ID
   rightsubnet=${S2_LO}/32
   authby=secret
   ike=aes128-sha2_256-modp1024!   # WRONG / weak
@@ -274,11 +279,12 @@ EOF
   echo -e "${OK} Faulty Libreswan config written to ${LIBRE_CONN}."
 }
 
-lab3_apply() {
-  echo "Lab 3 (Troubleshooting): Auth mismatch + firewall simulating wrong port."
+# Lab 4: Troubleshooting (wrong port + mismatch auth) — Libreswan
+lab4_apply() {
+  echo "Lab 4 (Troubleshooting): applying RSA auth without certs + blocking IKE ports."
   ensure_libreswan
   write_file "$LIBRE_CONN" 0644 <<EOF
-conn s6-lab3
+conn s6-lab4
   type=tunnel
   keyexchange=ikev2
   left=${S1_IF}
@@ -287,34 +293,35 @@ conn s6-lab3
   right=${S2_IF}
   rightid=${S2_IF}
   rightsubnet=${S2_LO}/32
-  authby=rsasig      # WRONG: RSA without certs
+  authby=rsasig          # WRONG: RSA without certs
   ike=aes256-sha2_256-modp2048!
   esp=aes256-sha2_256!
   pfs=yes
   auto=start
 EOF
   write_file "$LIBRE_SECRETS" 0600 <<EOF
-# Intentionally empty/incompatible with rsasig
+# Intentionally incompatible with rsasig
 EOF
   enable_service "$LIBRE_UNIT"
-  ufw_block_ipsec
+  ufw_block_ipsec         # simulate wrong listening port by blocking 500/4500
   echo -e "${OK} Deployed mismatched auth and blocked UDP/500/4500."
 }
 
-lab4_apply() {
-  echo "Lab 4 (Troubleshooting): Wrong loopbacks + weak crypto + firewall blocks."
+# Lab 5: Troubleshooting (wrong lo IP + mismatched auth/crypto + firewall blocks) — Libreswan
+lab5_apply() {
+  echo "Lab 5 (Troubleshooting): applying multiple faults + blocking IKE ports."
   ensure_libreswan
   write_file "$LIBRE_CONN" 0644 <<EOF
-conn s6-lab4
+conn s6-lab5
   type=tunnel
   keyexchange=ikev2
   left=${S1_IF}
   leftid=${S1_IF}
-  leftsubnet=172.16.2.1/32    # WRONG loopback
+  leftsubnet=172.16.9.1/32    # WRONG loopback
   right=${S2_IF}
   rightid=${S2_IF}
-  rightsubnet=172.16.2.2/32   # WRONG loopback
-  authby=secret
+  rightsubnet=172.16.9.2/32   # WRONG loopback
+  authby=rsasig               # WRONG auth (no certs)
   ike=aes128-sha1-modp1024!   # WRONG/legacy
   esp=3des-sha1!              # WRONG/legacy
   pfs=no
@@ -328,27 +335,39 @@ EOF
   echo -e "${OK} Faulty config deployed and IKE ports blocked."
 }
 
-# Labs 5 (config only) & 6–8 (StrongSwan troubleshooting)
-lab5_apply() {
-  echo "Lab 5 (Config): StrongSwan tunnel — no changes applied."
-  echo "What to do:"
+# Lab 6: Regular StrongSwan PSK — no changes applied
+lab6_apply() {
+  echo "Lab 6 (Config): Review steps below (no changes applied)."
   print_netplan_yaml 1
   print_netplan_yaml 2
   cat <<EOF
-- Create a site-to-site StrongSwan tunnel protecting ${S1_LO}/32 <-> ${S2_LO}/32 via ${IFACE} (${S1_IF} <-> ${S2_IF}).
-- Use IKEv2 with PSK, AES-256 for IKE/ESP, SHA-256 integrity, DH group modp2048 (PFS enabled).
-- Open UDP/500 and UDP/4500; ensure strongswan-starter is running.
+- Site-to-site StrongSwan with IKEv2 PSK, AES-256/SHA-256, DH modp2048 (PFS).
+- Protect ${S1_LO}/32 <-> ${S2_LO}/32 via ${IFACE} (${S1_IF} <-> ${S2_IF}).
+- Open UDP/500 & UDP/4500; auto=start.
 EOF
 }
 
-lab6_apply() {
-  echo "Lab 6 (Troubleshooting StrongSwan): Auth + encryption mismatch."
+# Lab 7: Regular StrongSwan RSA/cert — no changes applied
+lab7_apply() {
+  echo "Lab 7 (Config): Review steps below (no changes applied)."
+  print_netplan_yaml 1
+  print_netplan_yaml 2
+  cat <<EOF
+- Site-to-site StrongSwan with IKEv2 RSA/cert authentication.
+- AES-256/SHA-256, DH modp2048 (PFS), protect ${S1_LO}/32 <-> ${S2_LO}/32.
+- Generate CA + host certs (ipsec pki); place in /etc/ipsec.d/{cacerts,certs,private}; set authby=rsasig and leftcert/rightcert.
+EOF
+}
+
+# Lab 8: Troubleshooting StrongSwan (mismatch auth + mismatch encryption)
+lab8_apply() {
+  echo "Lab 8 (Troubleshooting StrongSwan): applying RSA auth without certs + weak proposals."
   ensure_strongswan
   write_file "$STRONG_MAIN" 0644 <<EOF
 config setup
   charondebug="ike 1, knl 1, cfg 0"
 
-conn s6-lab6
+conn s6-lab8
   keyexchange=ikev2
   type=tunnel
   left=${S1_IF}
@@ -357,35 +376,36 @@ conn s6-lab6
   right=${S2_IF}
   rightid=${S2_IF}
   rightsubnet=${S2_LO}/32
-  authby=secret
-  ike=aes128-sha1-modp1024!     # WRONG/weak
-  esp=aes128-sha1!              # WRONG
+  authby=rsasig                # WRONG auth (no certs)
+  ike=aes128-sha1-modp1024!    # WRONG/weak
+  esp=aes128-sha1!             # WRONG
   auto=start
 EOF
   write_file "$STRONG_SECRETS" 0600 <<EOF
-${S1_IF} ${S2_IF} : PSK "wrongsecret"
+# Empty; RSA selected with no certs to force mismatch
 EOF
   enable_service "$STRONG_UNIT"
   ufw_allow_ipsec
-  echo -e "${OK} StrongSwan with mismatched crypto & PSK deployed."
+  echo -e "${OK} StrongSwan with mismatched auth/crypto deployed."
 }
 
-lab7_apply() {
-  echo "Lab 7 (Troubleshooting StrongSwan): wrong loopbacks + wrong IDs."
+# Lab 9: Troubleshooting StrongSwan (wrong lo IP + wrong tun ID)
+lab9_apply() {
+  echo "Lab 9 (Troubleshooting StrongSwan): applying wrong loopbacks + wrong IDs."
   ensure_strongswan
   write_file "$STRONG_MAIN" 0644 <<EOF
 config setup
   charondebug="ike 1, knl 1, cfg 0"
 
-conn s6-lab7
+conn s6-lab9
   keyexchange=ikev2
   type=tunnel
   left=${S1_IF}
-  leftid=10.1.2.1           # WRONG
-  leftsubnet=172.16.9.1/32  # WRONG
+  leftid=10.1.2.1               # WRONG ID
+  leftsubnet=172.16.9.1/32      # WRONG loopback
   right=${S2_IF}
-  rightid=10.1.2.2          # WRONG
-  rightsubnet=172.16.9.2/32 # WRONG
+  rightid=10.1.2.2               # WRONG ID
+  rightsubnet=172.16.9.2/32      # WRONG loopback
   authby=secret
   ike=aes256-sha2_256-modp2048!
   esp=aes256-sha2_256!
@@ -399,14 +419,15 @@ EOF
   echo -e "${OK} StrongSwan config with wrong IDs/loopbacks written."
 }
 
-lab8_apply() {
-  echo "Lab 8 (Troubleshooting StrongSwan): encryption mismatch + ICMP blocked."
+# Lab 10: Troubleshooting StrongSwan (mismatch encryption + ICMP blocked)
+lab10_apply() {
+  echo "Lab 10 (Troubleshooting StrongSwan): applying weak proposals + blocking ICMP."
   ensure_strongswan
   write_file "$STRONG_MAIN" 0644 <<EOF
 config setup
   charondebug="ike 1, knl 1, cfg 0"
 
-conn s6-lab8
+conn s6-lab10
   keyexchange=ikev2
   type=tunnel
   left=${S1_IF}
@@ -440,6 +461,8 @@ apply_lab() {
     6) lab6_apply ;;
     7) lab7_apply ;;
     8) lab8_apply ;;
+    9) lab9_apply ;;
+    10) lab10_apply ;;
     *) echo -e "${FAIL} Unknown lab $lab"; exit 2 ;;
   esac
   save_state lab "$lab"
@@ -454,8 +477,8 @@ can_ping() { ping -c1 -W1 "$1" >/dev/null 2>&1; }
 
 lab1_check() {
   begin_check
-  can_ping "$S2_LO" && good "server2 loopback (${S2_LO}) reachable" || miss "Cannot ping server2 loopback"
-  can_ping "$S1_LO" && good "server1 loopback (${S1_LO}) reachable" || miss "Cannot ping server1 loopback"
+  can_ping "$S2_LO" && good "peer loopback (${S2_LO}) reachable" || miss "Cannot ping peer loopback"
+  can_ping "$S1_LO" && good "local loopback (${S1_LO}) reachable" || miss "Cannot ping local loopback"
   if has_cmd ss; then
     ss -lun | grep -q ':500' && good "UDP/500 listening" || miss "UDP/500 not listening"
     ss -lun | grep -q ':4500' && good "UDP/4500 listening" || miss "UDP/4500 not listening"
@@ -467,6 +490,13 @@ lab1_check() {
 
 lab2_check() {
   begin_check
+  # Just sanity + ping (students configure RSA/cert themselves)
+  can_ping "$S2_LO" && good "peer loopback (${S2_LO}) reachable" || miss "Cannot ping peer loopback"
+  end_check
+}
+
+lab3_check() {
+  begin_check
   if [[ -f "$LIBRE_CONN" ]]; then
     grep -q 'ike=aes128' "$LIBRE_CONN" && miss "IKE uses AES-128; fix to AES-256 + modp2048" || good "IKE proposal looks OK"
     grep -q 'esp=aes128' "$LIBRE_CONN" && miss "ESP uses AES-128; fix to AES-256" || good "ESP proposal looks OK"
@@ -477,7 +507,7 @@ lab2_check() {
   end_check
 }
 
-lab3_check() {
+lab4_check() {
   begin_check
   if [[ -f "$LIBRE_CONN" ]]; then
     grep -q 'authby=rsasig' "$LIBRE_CONN" && miss "Auth mismatch (RSA without certs) — use PSK or configure certs" || good "Auth method looks OK"
@@ -496,27 +526,26 @@ lab3_check() {
   end_check
 }
 
-lab4_check() {
+lab5_check() {
   begin_check
-  if [[ -f "$LIBRE_CONN" ]]; then
-    grep -q 'leftsubnet=172.16.2.1/32' "$LIBRE_CONN" && miss "Wrong left loopback (should be ${S1_LO}/32)" || good "Left loopback looks OK"
-    grep -q 'rightsubnet=172.16.2.2/32' "$LIBRE_CONN" && miss "Wrong right loopback (should be ${S2_LO}/32)" || good "Right loopback looks OK"
-    grep -q 'ike=aes128' "$LIBRE_CONN" && miss "Weak IKE proposal (AES-128/sha1/modp1024)" || good "IKE proposal looks OK"
+  if [[ -f "$LIBRE_CONN" ]]; then>
+    grep -q 'leftsubnet=172.16.9.1/32' "$LIBRE_CONN" && miss "Wrong left loopback — ${S1_LO}/32 required" || good "Left loopback looks OK"
+    grep -q 'rightsubnet=172.16.9.2/32' "$LIBRE_CONN" && miss "Wrong right loopback — ${S2_LO}/32 required" || good "Right loopback looks OK"
+    grep -q 'ike=aes128' "$LIBRE_CONN" && miss "Weak IKE proposal" || good "IKE proposal looks OK"
     grep -q 'esp=3des' "$LIBRE_CONN" && miss "Legacy ESP cipher (3DES)" || good "ESP cipher looks OK"
+    grep -q 'authby=rsasig' "$LIBRE_CONN" && miss "Auth mismatch (RSA w/o certs)" || good "Auth method looks OK"
   else
     miss "No ${LIBRE_CONN} found"
   fi
   if has_cmd ufw; then
     ufw status | grep -E '500/udp.*DENY|4500/udp.*DENY' >/dev/null && miss "UFW denies UDP/500 or 4500" || good "UFW not denying IKE ports"
-  else
-    good "Skipping UFW check (ufw not installed)"
   fi
   end_check
 }
 
-lab5_check() {
+lab6_check() {
   begin_check
-  can_ping "$S2_LO" && good "server2 loopback (${S2_LO}) reachable" || miss "Cannot ping server2 loopback"
+  can_ping "$S2_LO" && good "peer loopback (${S2_LO}) reachable" || miss "Cannot ping peer loopback"
   if has_cmd ss; then
     ss -lun | grep -q ':500' && good "UDP/500 listening" || miss "UDP/500 not listening"
     ss -lun | grep -q ':4500' && good "UDP/4500 listening" || miss "UDP/4500 not listening"
@@ -526,36 +555,38 @@ lab5_check() {
   end_check
 }
 
-lab6_check() {
+lab7_check() {
+  begin_check
+  can_ping "$S2_LO" && good "peer loopback (${S2_LO}) reachable" || miss "Cannot ping peer loopback"
+  end_check
+}
+
+lab8_check() {
   begin_check
   if [[ -f "$STRONG_MAIN" ]]; then
+    grep -q 'authby=rsasig' "$STRONG_MAIN" && miss "RSA selected without certs — fix to PSK or configure certs" || good "Auth not mismatched"
     grep -q 'ike=aes128' "$STRONG_MAIN" && miss "StrongSwan IKE uses AES-128; fix to AES-256 + modp2048" || good "IKE proposal looks OK"
     grep -q 'esp=aes128' "$STRONG_MAIN" && miss "StrongSwan ESP uses AES-128; fix to AES-256" || good "ESP proposal looks OK"
   else
     miss "No ${STRONG_MAIN} found"
   fi
-  if [[ -f "$STRONG_SECRETS" ]]; then
-    grep -q 'wrongsecret' "$STRONG_SECRETS" && miss "PSK mismatch — set same PSK on both ends" || good "PSK not mismatched"
-  else
-    miss "No ${STRONG_SECRETS} found"
-  fi
   end_check
 }
 
-lab7_check() {
+lab9_check() {
   begin_check
   if [[ -f "$STRONG_MAIN" ]]; then
-    grep -q 'leftid=10.1.2.1' "$STRONG_MAIN" && miss "Wrong left ID — use ${S1_IF} or matching identity" || good "Left ID looks OK"
+    grep -q 'leftid=10.1.2.1' "$STRONG_MAIN" && miss "Wrong left ID — use ${S1_IF} or proper identity" || good "Left ID looks OK"
     grep -q 'rightid=10.1.2.2' "$STRONG_MAIN" && miss "Wrong right ID — use ${S2_IF}" || good "Right ID looks OK"
-    grep -q 'leftsubnet=172.16.9.1/32' "$STRONG_MAIN" && miss "Wrong left loopback — ${S1_LO}/32 is required" || good "Left loopback looks OK"
-    grep -q 'rightsubnet=172.16.9.2/32' "$STRONG_MAIN" && miss "Wrong right loopback — ${S2_LO}/32 is required" || good "Right loopback looks OK"
+    grep -q 'leftsubnet=172.16.9.1/32' "$STRONG_MAIN" && miss "Wrong left loopback — ${S1_LO}/32 required" || good "Left loopback looks OK"
+    grep -q 'rightsubnet=172.16.9.2/32' "$STRONG_MAIN" && miss "Wrong right loopback — ${S2_LO}/32 required" || good "Right loopback looks OK"
   else
     miss "No ${STRONG_MAIN} found"
   fi
   end_check
 }
 
-lab8_check() {
+lab10_check() {
   begin_check
   if [[ -f "$STRONG_MAIN" ]]; then
     grep -q 'ike=aes128' "$STRONG_MAIN" && miss "StrongSwan IKE uses AES-128; fix to AES-256 + modp2048" || good "IKE proposal looks OK"
@@ -582,6 +613,8 @@ do_check() {
     6) lab6_check ;;
     7) lab7_check ;;
     8) lab8_check ;;
+    9) lab9_check ;;
+    10) lab10_check ;;
     *) echo -e "${FAIL} Unknown lab $lab"; exit 2 ;;
   esac
 }
@@ -599,83 +632,121 @@ print_solution() {
       print_netplan_yaml 1
       print_netplan_yaml 2
       cat <<'EOS'
-# Install Libreswan and enable firewall ports
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
 sudo apt-get update -y
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
 sudo ufw --force enable
 sudo ufw allow 500/udp
 sudo ufw allow 4500/udp
 
-# /etc/ipsec.conf (starter)
 sudo tee /etc/ipsec.conf >/dev/null <<'CONF'
 config setup
 include /etc/ipsec.d/*.conf
 CONF
 
-# /etc/ipsec.d/section6-lab1.conf (complete crypto/auth/DH)
 sudo tee /etc/ipsec.d/section6-lab1.conf >/dev/null <<'CONF'
 conn s6-lab1
   type=tunnel
   keyexchange=ikev2
-  # Endpoints
   left=10.10.10.1
   leftid=10.10.10.1
   leftsubnet=172.16.1.1/32
   right=10.10.10.2
   rightid=10.10.10.2
   rightsubnet=172.16.1.2/32
-  # Auth + Crypto + DH
   authby=secret
   ike=aes256-sha2_256-modp2048!
   esp=aes256-sha2_256!
   pfs=yes
-  # Lifetimes / DPD
   ikelifetime=8h
   salifetime=1h
   dpddelay=30s
   dpdtimeout=120s
   dpdaction=restart
-  # Bring up automatically
   auto=start
 CONF
 
-# /etc/ipsec.secrets (PSK)
 sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
 10.10.10.1 10.10.10.2 : PSK "supersecret"
 CONF
 sudo chmod 600 /etc/ipsec.secrets
 
-# Enable / restart Libreswan
 sudo systemctl enable ipsec.service
 sudo systemctl restart ipsec.service
 
-# Verification
 ipsec status
 sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
 ping -c2 172.16.1.2
 EOS
       ;;
     2)
+      echo "Configure both servers with:"
       print_netplan_yaml 1
       print_netplan_yaml 2
       cat <<'EOS'
-# Fixes for Lab 2 (Libreswan)
-sudo sed -i 's/^  rightid=.*/  rightid=10.10.10.2/' /etc/ipsec.d/section6.conf
-sudo sed -i 's/^  ike=.*/  ike=aes256-sha2_256-modp2048!/' /etc/ipsec.d/section6.conf
-sudo sed -i 's/^  esp=.*/  esp=aes256-sha2_256!/' /etc/ipsec.d/section6.conf
-sudo sed -i 's/^  pfs=.*/  pfs=yes/' /etc/ipsec.d/section6.conf
-
-sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
-10.10.10.1 10.10.10.2 : PSK "supersecret"
-CONF
-sudo chmod 600 /etc/ipsec.secrets
-
-sudo ufw delete deny 500/udp 2>/dev/null || true
-sudo ufw delete deny 4500/udp 2>/dev/null || true
+# Libreswan RSA/cert baseline
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw libnss3-tools openssl
+sudo ufw --force enable
 sudo ufw allow 500/udp
 sudo ufw allow 4500/udp
 
+# Initialize NSS DB for Libreswan
+sudo ipsec initnss 2>/dev/null || true
+# Create CA
+openssl req -new -x509 -nodes -newkey rsa:4096 -days 3650 \
+  -subj "/CN=Section6-CA" -keyout /etc/ipsec.d/ca.key -out /etc/ipsec.d/ca.crt
+# Create server1 key+CSR
+openssl req -new -nodes -newkey rsa:3072 \
+  -subj "/CN=10.10.10.1" -keyout /etc/ipsec.d/server1.key -out /etc/ipsec.d/server1.csr
+openssl x509 -req -in /etc/ipsec.d/server1.csr -CA /etc/ipsec.d/ca.crt -CAkey /etc/ipsec.d/ca.key \
+  -CAcreateserial -days 1825 -out /etc/ipsec.d/server1.crt
+# Create server2 key+CSR
+openssl req -new -nodes -newkey rsa:3072 \
+  -subj "/CN=10.10.10.2" -keyout /etc/ipsec.d/server2.key -out /etc/ipsec.d/server2.csr
+openssl x509 -req -in /etc/ipsec.d/server2.csr -CA /etc/ipsec.d/ca.crt -CAkey /etc/ipsec.d/ca.key \
+  -CAcreateserial -days 1825 -out /etc/ipsec.d/server2.crt
+
+# Package to PKCS12 and import to NSS DB (nicknames: server1, server2)
+openssl pkcs12 -export -inkey /etc/ipsec.d/server1.key -in /etc/ipsec.d/server1.crt \
+  -certfile /etc/ipsec.d/ca.crt -out /etc/ipsec.d/server1.p12 -passout pass:
+openssl pkcs12 -export -inkey /etc/ipsec.d/server2.key -in /etc/ipsec.d/server2.crt \
+  -certfile /etc/ipsec.d/ca.crt -out /etc/ipsec.d/server2.p12 -passout pass:
+
+sudo pk12util -i /etc/ipsec.d/server1.p12 -d /etc/ipsec.d -W "" -n "server1"
+sudo pk12util -i /etc/ipsec.d/server2.p12 -d /etc/ipsec.d -W "" -n "server2"
+sudo certutil -A -n "Section6-CA" -t "CT,C,C" -d /etc/ipsec.d -a -i /etc/ipsec.d/ca.crt
+
+# Libreswan config with RSA/cert
+sudo tee /etc/ipsec.conf >/dev/null <<'CONF'
+config setup
+include /etc/ipsec.d/*.conf
+CONF
+
+sudo tee /etc/ipsec.d/section6-lab2.conf >/dev/null <<'CONF'
+conn s6-lab2
+  type=tunnel
+  keyexchange=ikev2
+  left=10.10.10.1
+  leftid=10.10.10.1
+  leftsubnet=172.16.1.1/32
+  right=10.10.10.2
+  rightid=10.10.10.2
+  rightsubnet=172.16.1.2/32
+  authby=rsasig
+  leftrsasigkey=%cert
+  rightrsasigkey=%cert
+  leftcert=server1
+  rightcert=server2
+  ike=aes256-sha2_256-modp2048!
+  esp=aes256-sha2_256!
+  pfs=yes
+  auto=start
+CONF
+
+sudo systemctl enable ipsec.service
 sudo systemctl restart ipsec.service
+
 ipsec status
 ping -c2 172.16.1.2
 EOS
@@ -684,22 +755,14 @@ EOS
       print_netplan_yaml 1
       print_netplan_yaml 2
       cat <<'EOS'
-# Fixes for Lab 3 (Libreswan)
-sudo sed -i 's/^  authby=.*/  authby=secret/' /etc/ipsec.d/section6.conf
-
-sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
-10.10.10.1 10.10.10.2 : PSK "supersecret"
-CONF
-sudo chmod 600 /etc/ipsec.secrets
-
-sudo ufw delete deny 500/udp 2>/dev/null || true
-sudo ufw delete deny 4500/udp 2>/dev/null || true
-sudo ufw allow 500/udp
-sudo ufw allow 4500/udp
+# Fixes for Troubleshooting 1 (Libreswan)
+sudo sed -i 's/^  rightid=.*/  rightid=10.10.10.2/' /etc/ipsec.d/section6.conf
+sudo sed -i 's/^  ike=.*/  ike=aes256-sha2_256-modp2048!/' /etc/ipsec.d/section6.conf
+sudo sed -i 's/^  esp=.*/  esp=aes256-sha2_256!/' /etc/ipsec.d/section6.conf
+sudo sed -i 's/^  pfs=.*/  pfs=yes/' /etc/ipsec.d/section6.conf
 
 sudo systemctl restart ipsec.service
 ipsec status
-sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
 ping -c2 172.16.1.2
 EOS
       ;;
@@ -707,13 +770,15 @@ EOS
       print_netplan_yaml 1
       print_netplan_yaml 2
       cat <<'EOS'
-# Fixes for Lab 4 (Libreswan)
-sudo sed -i 's/^  leftsubnet=.*/  leftsubnet=172.16.1.1\/32/' /etc/ipsec.d/section6.conf
-sudo sed -i 's/^  rightsubnet=.*/  rightsubnet=172.16.1.2\/32/' /etc/ipsec.d/section6.conf
-sudo sed -i 's/^  ike=.*/  ike=aes256-sha2_256-modp2048!/' /etc/ipsec.d/section6.conf
-sudo sed -i 's/^  esp=.*/  esp=aes256-sha2_256!/' /etc/ipsec.d/section6.conf
-sudo sed -i 's/^  pfs=.*/  pfs=yes/' /etc/ipsec.d/section6.conf
+# Fixes for Troubleshooting 2 (Libreswan)
+# Use PSK or set up proper RSA certs
+sudo sed -i 's/^  authby=.*/  authby=secret/' /etc/ipsec.d/section6.conf
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK "supersecret"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
 
+# Unblock IKE ports
 sudo ufw delete deny 500/udp 2>/dev/null || true
 sudo ufw delete deny 4500/udp 2>/dev/null || true
 sudo ufw allow 500/udp
@@ -725,11 +790,33 @@ ping -c2 172.16.1.2
 EOS
       ;;
     5)
+      print_netplan_yaml 1
+      print_netplan_yaml 2
+      cat <<'EOS'
+# Fixes for Troubleshooting 3 (Libreswan)
+sudo sed -i 's/^  leftsubnet=.*/  leftsubnet=172.16.1.1\/32/' /etc/ipsec.d/section6.conf
+sudo sed -i 's/^  rightsubnet=.*/  rightsubnet=172.16.1.2\/32/' /etc/ipsec.d/section6.conf
+sudo sed -i 's/^  ike=.*/  ike=aes256-sha2_256-modp2048!/' /etc/ipsec.d/section6.conf
+sudo sed -i 's/^  esp=.*/  esp=aes256-sha2_256!/' /etc/ipsec.d/section6.conf
+sudo sed -i 's/^  pfs=.*/  pfs=yes/' /etc/ipsec.d/section6.conf
+sudo sed -i 's/^  authby=.*/  authby=secret/' /etc/ipsec.d/section6.conf
+
+sudo ufw delete deny 500/udp 2>/dev/null || true
+sudo ufw delete deny 4500/udp 2>/dev/null || true
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+
+sudo systemctl restart ipsec.service
+ipsec status
+ping -c2 172.16.1.2
+EOS
+      ;;
+    6)
       echo "Configure both servers with:"
       print_netplan_yaml 1
       print_netplan_yaml 2
       cat <<'EOS'
-# StrongSwan baseline
+# StrongSwan PSK baseline
 sudo apt-get update -y
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y strongswan ufw
 sudo ufw --force enable
@@ -740,7 +827,7 @@ sudo tee /etc/ipsec.conf >/dev/null <<'CONF'
 config setup
   charondebug="ike 1, knl 1, cfg 0"
 
-conn s6-lab5
+conn s6-lab6
   keyexchange=ikev2
   type=tunnel
   left=10.10.10.1
@@ -766,15 +853,75 @@ sudo systemctl enable strongswan-starter.service
 sudo systemctl restart strongswan-starter.service
 
 ipsec statusall
-sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
 ping -c2 172.16.1.2
 EOS
       ;;
-    6)
+    7)
+      echo "Configure both servers with:"
       print_netplan_yaml 1
       print_netplan_yaml 2
       cat <<'EOS'
-# Fixes for Lab 6 (StrongSwan)
+# StrongSwan RSA/cert baseline (ipsec pki)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y strongswan ufw
+sudo ufw --force enable
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+
+# Create CA and host certs
+mkdir -p /etc/ipsec.d/{cacerts,certs,private}
+ipsec pki --gen --type rsa --size 4096 --outform pem > /etc/ipsec.d/private/ca.key.pem
+ipsec pki --self --ca --lifetime 3650 --in /etc/ipsec.d/private/ca.key.pem \
+  --type rsa --dn "CN=Section6-CA" --outform pem > /etc/ipsec.d/cacerts/ca.crt.pem
+
+ipsec pki --gen --type rsa --size 3072 --outform pem > /etc/ipsec.d/private/server1.key.pem
+ipsec pki --pub --in /etc/ipsec.d/private/server1.key.pem --type rsa \
+  | ipsec pki --issue --lifetime 1825 --cacert /etc/ipsec.d/cacerts/ca.crt.pem \
+  --cakey /etc/ipsec.d/private/ca.key.pem --dn "CN=10.10.10.1" --san 10.10.10.1 \
+  --flag serverAuth --flag ikeIntermediate --outform pem > /etc/ipsec.d/certs/server1.crt.pem
+
+ipsec pki --gen --type rsa --size 3072 --outform pem > /etc/ipsec.d/private/server2.key.pem
+ipsec pki --pub --in /etc/ipsec.d/private/server2.key.pem --type rsa \
+  | ipsec pki --issue --lifetime 1825 --cacert /etc/ipsec.d/cacerts/ca.crt.pem \
+  --cakey /etc/ipsec.d/private/ca.key.pem --dn "CN=10.10.10.2" --san 10.10.10.2 \
+  --flag serverAuth --flag ikeIntermediate --outform pem > /etc/ipsec.d/certs/server2.crt.pem
+
+# StrongSwan RSA config
+sudo tee /etc/ipsec.conf >/dev/null <<'CONF'
+config setup
+  charondebug="ike 1, knl 1, cfg 0"
+
+conn s6-lab7
+  keyexchange=ikev2
+  type=tunnel
+  left=10.10.10.1
+  leftid=10.10.10.1
+  leftsubnet=172.16.1.1/32
+  leftcert=server1.crt.pem
+  right=10.10.10.2
+  rightid=10.10.10.2
+  rightsubnet=172.16.1.2/32
+  rightcert=server2.crt.pem
+  authby=rsasig
+  ike=aes256-sha2_256-modp2048!
+  esp=aes256-sha2_256!
+  auto=start
+CONF
+
+sudo systemctl enable strongswan-starter.service
+sudo systemctl restart strongswan-starter.service
+
+ipsec statusall
+ping -c2 172.16.1.2
+EOS
+      ;;
+    8)
+      print_netplan_yaml 1
+      print_netplan_yaml 2
+      cat <<'EOS'
+# Fixes for Troubleshooting 4 (StrongSwan)
+# Use PSK or configure RSA certs properly
+sudo sed -i 's/^  authby=.*/  authby=secret/' /etc/ipsec.conf
 sudo sed -i 's/^  ike=.*/  ike=aes256-sha2_256-modp2048!/' /etc/ipsec.conf
 sudo sed -i 's/^  esp=.*/  esp=aes256-sha2_256!/' /etc/ipsec.conf
 
@@ -788,11 +935,11 @@ ipsec statusall
 ping -c2 172.16.1.2
 EOS
       ;;
-    7)
+    9)
       print_netplan_yaml 1
       print_netplan_yaml 2
       cat <<'EOS'
-# Fixes for Lab 7 (StrongSwan)
+# Fixes for Troubleshooting 5 (StrongSwan)
 sudo sed -i 's/^  leftid=.*/  leftid=10.10.10.1/' /etc/ipsec.conf
 sudo sed -i 's/^  rightid=.*/  rightid=10.10.10.2/' /etc/ipsec.conf
 sudo sed -i 's/^  leftsubnet=.*/  leftsubnet=172.16.1.1\/32/' /etc/ipsec.conf
@@ -803,15 +950,15 @@ ipsec statusall
 ping -c2 172.16.1.2
 EOS
       ;;
-    8)
+    10)
       print_netplan_yaml 1
       print_netplan_yaml 2
       cat <<'EOS'
-# Fixes for Lab 8 (StrongSwan)
+# Fixes for Troubleshooting 6 (StrongSwan)
 sudo sed -i 's/^  ike=.*/  ike=aes256-sha2_256-modp2048!/' /etc/ipsec.conf
 sudo sed -i 's/^  esp=.*/  esp=aes256-sha2_256!/' /etc/ipsec.conf
 
-# Unblock ICMP if blocked via iptables
+# Unblock ICMP if blocked
 sudo iptables -D INPUT -p icmp -j DROP 2>/dev/null || true
 
 sudo systemctl restart strongswan-starter.service
@@ -877,12 +1024,12 @@ interactive_menu() {
     read -rp "Select option: " opt
     case "$opt" in
       1)
-        read -rp "Lab (1-8): " lab
+        read -rp "Lab (1-10): " lab
         apply_lab "$lab"
         read -rp "Press Enter..."
         ;;
       2)
-        read -rp "Lab (1-8): " lab
+        read -rp "Lab (1-10): " lab
         do_check "$lab"
         read -rp "Press Enter..."
         ;;
@@ -899,7 +1046,7 @@ interactive_menu() {
         read -rp "Press Enter..."
         ;;
       6)
-        read -rp "Lab (1-8): " lab
+        read -rp "Lab (1-10): " lab
         print_solution "$lab"
         read -rp "Press Enter..."
         ;;
@@ -928,8 +1075,7 @@ main() {
     list) print_list; exit 0 ;;
     status) status; exit 0 ;;
     reset) reset_all; exit 0 ;;
-    solutions)
-      [[ $# -ne 2 ]] && { echo -e "${FAIL} Usage: $0 solutions <lab#>"; exit 2; }
+    solutions) [[ $# -ne 2 ]] && { echo -e "${FAIL} Usage: $0 solutions <lab#>"; exit 2; }
       print_solution "$2"; exit 0 ;;
   esac
   local lab="$1"
