@@ -1,12 +1,5 @@
 #!/usr/bin/env bash
 # Section 4 - DNS & Name Resolution Labs (easier version, with step-by-step Solutions)
-# Labs:
-# 1) Forward Zone (Bind9): lab.local with apex A + ns/www
-# 2) Reverse Zone (Bind9): 10.10.20.0/24
-# 3) DNS Caching (dnsmasq): simple cache + local answers, no BIND required
-# 4) Split DNS (Bind9 views): internal/external with apex A
-# 5) Troubleshooting DNS (Bind9)
-# 6) Local DNS Server (Bind9)
 
 # ---- Run-as-root check BEFORE strict mode/trap ----
 if (( EUID != 0 )); then
