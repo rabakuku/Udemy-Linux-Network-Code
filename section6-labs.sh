@@ -1,11 +1,14 @@
 
 #!/usr/bin/env bash
+# If not executed by bash (e.g., /bin/sh), re-exec with bash.
+[ -n "$BASH_VERSION" ] || exec /usr/bin/env bash "$0" "$@"
+
 # ============================================================
 # Section 6 — IPsec / StrongSwan Tunnel Labs (Interactive Menu)
 # ============================================================
 
 # ---- Root check ----
-if (( EUID != 0 )); then
+if [ "$(id -u)" -ne 0 ]; then
   echo -e "\e[33m[!] Please run as root: sudo $0 $*\e[0m"
   exit 1
 fi
@@ -528,7 +531,7 @@ lab4_check() {
 
 lab5_check() {
   begin_check
-  if [[ -f "$LIBRE_CONN" ]]; then>
+  if [[ -f "$LIBRE_CONN" ]]; then
     grep -q 'leftsubnet=172.16.9.1/32' "$LIBRE_CONN" && miss "Wrong left loopback — ${S1_LO}/32 required" || good "Left loopback looks OK"
     grep -q 'rightsubnet=172.16.9.2/32' "$LIBRE_CONN" && miss "Wrong right loopback — ${S2_LO}/32 required" || good "Right loopback looks OK"
     grep -q 'ike=aes128' "$LIBRE_CONN" && miss "Weak IKE proposal" || good "IKE proposal looks OK"
