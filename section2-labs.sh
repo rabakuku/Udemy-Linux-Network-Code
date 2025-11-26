@@ -1,13 +1,4 @@
 #!/usr/bin/env bash
-# Section 2 - Regular Labs (Persistent Configs, No Runtime Hacks)
-# Labs:
-# 1) Naming (CONFIG): netplan set-name -> lan0 + static IP
-# 2) Naming (CONFIG): netplan set-name -> wan0 + static IP
-# 3) VLAN (CONFIG): netplan VLAN 'vlan10' on primary NIC + static IP
-# 4) NetworkManager (CONFIG): switch renderer to NM + static profile via nmcli
-# 5) NetworkManager (CONFIG): change MTU via NM (802-3-ethernet.mtu=1400)
-# 6) NetworkManager (CONFIG): set IPv4 DNS on connection via NM (1.1.1.1, 8.8.8.8)
-# 7) Loopback (CONFIG): persistent 127.0.0.2/8, 127.0.0.3/8 via systemd-networkd
 # Menu: Apply / Check / Reset / Status / List / Solutions / Tips
 
 if [[ -n "${LABS_DEBUG:-}" ]]; then set -x; fi
@@ -833,4 +824,5 @@ main() {
   esac
 }
 main "$@"
+
 
