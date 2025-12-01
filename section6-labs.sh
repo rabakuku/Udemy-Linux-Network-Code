@@ -34,8 +34,8 @@ STATE_FILE="${LAB_ROOT}/state"
 IFACE="ens4"
 S1_IF="10.10.10.1"
 S2_IF="10.10.10.2"
-S1_LO="172.16.1.1"
-S2_LO="172.16.1.2"
+S1_Dummy="172.16.1.1"
+S2_Dummy="172.16.1.2"
 
 # Colors/icons
 GREEN="\e[32m"; RED="\e[31m"; BLUE="\e[34m"; NC="\e[0m"
@@ -167,20 +167,39 @@ unblock_icmp() {
 }
 
 # ---- Netplan YAML (always included in solutions) ----
-print_netplan_yaml() {
-  local server="$1"
-  if [[ "$server" == "1" ]]; then
-    cat <<EOF
-section6-server1.yaml
+print_netplan_yaml_server1() {
+  cat <<'EOF'
 network:
   version: 2
   ethernets:
     ens4:
       addresses:
-        - ${S1_IF}/24
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+EOF
+}
+
+print_netplan_yaml_server2() {
+  cat <<'EOF'
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+EOF
+}
+/24
     lo:
       addresses:
-        - ${S1_LO}/32
+        - ${S1_Dummy}/32
 netplan apply
 EOF
   else
@@ -194,7 +213,7 @@ network:
         - ${S2_IF}/24
     lo:
       addresses:
-        - ${S2_LO}/32
+        - ${S2_Dummy}/32
 netplan apply
 EOF
   fi
@@ -233,11 +252,11 @@ EOF
 # Lab 1: Regular IPsec PSK (Libreswan) — no changes applied
 lab1_apply() {
   echo "Lab 1 (Config): Review steps below (no changes applied)."
-  print_netplan_yaml 1
-  print_netplan_yaml 2
+  print_netplan_yaml_server1
+  print_netplan_yaml_server2
   cat <<EOF
 - Build a site-to-site IPsec tunnel with IKEv2 PSK, AES-256/SHA-256, DH modp2048 (PFS).
-- Protect ${S1_LO}/32 <-> ${S2_LO}/32 via ${IFACE} (${S1_IF} <-> ${S2_IF}).
+- Protect ${S1_Dummy}/32 <-> ${S2_Dummy}/32 via ${IFACE} (${S1_IF} <-> ${S2_IF}).
 - Allow UDP/500 & UDP/4500; ensure DPD restart and auto=start.
 EOF
 }
@@ -245,11 +264,11 @@ EOF
 # Lab 2: Regular IPsec RSA/cert (Libreswan) — no changes applied
 lab2_apply() {
   echo "Lab 2 (Config): Review steps below (no changes applied)."
-  print_netplan_yaml 1
-  print_netplan_yaml 2
+  print_netplan_yaml_server1
+  print_netplan_yaml_server2
   cat <<EOF
 - Site-to-site IPsec with IKEv2 RSA/cert authentication (no StrongSwan).
-- Use AES-256/SHA-256, DH modp2048 (PFS), protect ${S1_LO}/32 <-> ${S2_LO}/32.
+- Use AES-256/SHA-256, DH modp2048 (PFS), protect ${S1_Dummy}/32 <-> ${S2_Dummy}/32.
 - Create CA + host certs, import into Libreswan's NSS DB; authby=rsasig; leftrsasigkey/right rsasig key as %cert.
 - Open UDP/500 & UDP/4500; auto=start.
 EOF
@@ -265,10 +284,10 @@ conn s6-lab3
   keyexchange=ikev2
   left=${S1_IF}
   leftid=${S1_IF}
-  leftsubnet=${S1_LO}/32
+  leftsubnet=${S1_Dummy}/32
   right=${S2_IF}
   rightid=10.1.2.2          # WRONG: tunnel ID
-  rightsubnet=${S2_LO}/32
+  rightsubnet=${S2_Dummy}/32
   authby=secret
   ike=aes128-sha2_256-modp1024!   # WRONG / weak
   esp=aes128-sha2_256!
@@ -298,10 +317,10 @@ conn s6-lab4
   keyexchange=ikev2
   left=${S1_IF}
   leftid=${S1_IF}
-  leftsubnet=${S1_LO}/32
+  leftsubnet=${S1_Dummy}/32
   right=${S2_IF}
   rightid=${S2_IF}
-  rightsubnet=${S2_LO}/32
+  rightsubnet=${S2_Dummy}/32
   authby=rsasig          # WRONG: RSA without certs
   ike=aes256-sha2_256-modp2048!
   esp=aes256-sha2_256!
@@ -347,11 +366,11 @@ EOF
 # Lab 6: Regular StrongSwan PSK — no changes applied
 lab6_apply() {
   echo "Lab 6 (Config): Review steps below (no changes applied)."
-  print_netplan_yaml 1
-  print_netplan_yaml 2
+  print_netplan_yaml_server1
+  print_netplan_yaml_server2
   cat <<EOF
 - Site-to-site StrongSwan with IKEv2 PSK, AES-256/SHA-256, DH modp2048 (PFS).
-- Protect ${S1_LO}/32 <-> ${S2_LO}/32 via ${IFACE} (${S1_IF} <-> ${S2_IF}).
+- Protect ${S1_Dummy}/32 <-> ${S2_Dummy}/32 via ${IFACE} (${S1_IF} <-> ${S2_IF}).
 - Open UDP/500 & UDP/4500; auto=start.
 EOF
 }
@@ -359,11 +378,11 @@ EOF
 # Lab 7: Regular StrongSwan RSA/cert — no changes applied
 lab7_apply() {
   echo "Lab 7 (Config): Review steps below (no changes applied)."
-  print_netplan_yaml 1
-  print_netplan_yaml 2
+  print_netplan_yaml_server1
+  print_netplan_yaml_server2
   cat <<EOF
 - Site-to-site StrongSwan with IKEv2 RSA/cert authentication.
-- AES-256/SHA-256, DH modp2048 (PFS), protect ${S1_LO}/32 <-> ${S2_LO}/32.
+- AES-256/SHA-256, DH modp2048 (PFS), protect ${S1_Dummy}/32 <-> ${S2_Dummy}/32.
 - Generate CA + host certs (ipsec pki); place in /etc/ipsec.d/{cacerts,certs,private}; set authby=rsasig and leftcert/rightcert.
 EOF
 }
@@ -381,10 +400,10 @@ conn s6-lab8
   type=tunnel
   left=${S1_IF}
   leftid=${S1_IF}
-  leftsubnet=${S1_LO}/32
+  leftsubnet=${S1_Dummy}/32
   right=${S2_IF}
   rightid=${S2_IF}
-  rightsubnet=${S2_LO}/32
+  rightsubnet=${S2_Dummy}/32
   authby=rsasig                # WRONG auth (no certs)
   ike=aes128-sha1-modp1024!    # WRONG/weak
   esp=aes128-sha1!             # WRONG
@@ -441,10 +460,10 @@ conn s6-lab10
   type=tunnel
   left=${S1_IF}
   leftid=${S1_IF}
-  leftsubnet=${S1_LO}/32
+  leftsubnet=${S1_Dummy}/32
   right=${S2_IF}
   rightid=${S2_IF}
-  rightsubnet=${S2_LO}/32
+  rightsubnet=${S2_Dummy}/32
   authby=secret
   ike=aes128-sha1-modp1024!     # WRONG/weak
   esp=aes128-sha1!              # WRONG
@@ -462,16 +481,1716 @@ EOF
 apply_lab() {
   local lab="$1"
   case "$lab" in
-    1) lab1_apply ;;
-    2) lab2_apply ;;
-    3) lab3_apply ;;
-    4) lab4_apply ;;
-    5) lab5_apply ;;
-    6) lab6_apply ;;
-    7) lab7_apply ;;
-    8) lab8_apply ;;
-    9) lab9_apply ;;
-    10) lab10_apply ;;
+  1) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  2) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  3) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  4) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  5) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  6) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  7) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  8) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  9) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  10) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
     *) echo -e "${FAIL} Unknown lab $lab"; exit 2 ;;
   esac
   save_state lab "$lab"
@@ -486,8 +2205,8 @@ can_ping() { ping -c1 -W1 "$1" >/dev/null 2>&1; }
 
 lab1_check() {
   begin_check
-  can_ping "$S2_LO" && good "peer loopback (${S2_LO}) reachable" || miss "Cannot ping peer loopback"
-  can_ping "$S1_LO" && good "local loopback (${S1_LO}) reachable" || miss "Cannot ping local loopback"
+  can_ping "$S2_Dummy" && good "peer loopback (${S2_Dummy}) reachable" || miss "Cannot ping peer loopback"
+  can_ping "$S1_Dummy" && good "local loopback (${S1_Dummy}) reachable" || miss "Cannot ping local loopback"
   if has_cmd ss; then
     ss -lun | grep -q ':500' && good "UDP/500 listening" || miss "UDP/500 not listening"
     ss -lun | grep -q ':4500' && good "UDP/4500 listening" || miss "UDP/4500 not listening"
@@ -500,7 +2219,7 @@ lab1_check() {
 lab2_check() {
   begin_check
   # Just sanity + ping (students configure RSA/cert themselves)
-  can_ping "$S2_LO" && good "peer loopback (${S2_LO}) reachable" || miss "Cannot ping peer loopback"
+  can_ping "$S2_Dummy" && good "peer loopback (${S2_Dummy}) reachable" || miss "Cannot ping peer loopback"
   end_check
 }
 
@@ -538,8 +2257,8 @@ lab4_check() {
 lab5_check() {
   begin_check
   if [[ -f "$LIBRE_CONN" ]]; then
-    grep -q 'leftsubnet=172.16.9.1/32' "$LIBRE_CONN" && miss "Wrong left loopback — ${S1_LO}/32 required" || good "Left loopback looks OK"
-    grep -q 'rightsubnet=172.16.9.2/32' "$LIBRE_CONN" && miss "Wrong right loopback — ${S2_LO}/32 required" || good "Right loopback looks OK"
+    grep -q 'leftsubnet=172.16.9.1/32' "$LIBRE_CONN" && miss "Wrong left loopback — ${S1_Dummy}/32 required" || good "Left loopback looks OK"
+    grep -q 'rightsubnet=172.16.9.2/32' "$LIBRE_CONN" && miss "Wrong right loopback — ${S2_Dummy}/32 required" || good "Right loopback looks OK"
     grep -q 'ike=aes128' "$LIBRE_CONN" && miss "Weak IKE proposal" || good "IKE proposal looks OK"
     grep -q 'esp=3des' "$LIBRE_CONN" && miss "Legacy ESP cipher (3DES)" || good "ESP cipher looks OK"
     grep -q 'authby=rsasig' "$LIBRE_CONN" && miss "Auth mismatch (RSA w/o certs)" || good "Auth method looks OK"
@@ -554,7 +2273,7 @@ lab5_check() {
 
 lab6_check() {
   begin_check
-  can_ping "$S2_LO" && good "peer loopback (${S2_LO}) reachable" || miss "Cannot ping peer loopback"
+  can_ping "$S2_Dummy" && good "peer loopback (${S2_Dummy}) reachable" || miss "Cannot ping peer loopback"
   if has_cmd ss; then
     ss -lun | grep -q ':500' && good "UDP/500 listening" || miss "UDP/500 not listening"
     ss -lun | grep -q ':4500' && good "UDP/4500 listening" || miss "UDP/4500 not listening"
@@ -566,7 +2285,7 @@ lab6_check() {
 
 lab7_check() {
   begin_check
-  can_ping "$S2_LO" && good "peer loopback (${S2_LO}) reachable" || miss "Cannot ping peer loopback"
+  can_ping "$S2_Dummy" && good "peer loopback (${S2_Dummy}) reachable" || miss "Cannot ping peer loopback"
   end_check
 }
 
@@ -587,8 +2306,8 @@ lab9_check() {
   if [[ -f "$STRONG_MAIN" ]]; then
     grep -q 'leftid=10.1.2.1' "$STRONG_MAIN" && miss "Wrong left ID — use ${S1_IF} or proper identity" || good "Left ID looks OK"
     grep -q 'rightid=10.1.2.2' "$STRONG_MAIN" && miss "Wrong right ID — use ${S2_IF}" || good "Right ID looks OK"
-    grep -q 'leftsubnet=172.16.9.1/32' "$STRONG_MAIN" && miss "Wrong left loopback — ${S1_LO}/32 required" || good "Left loopback looks OK"
-    grep -q 'rightsubnet=172.16.9.2/32' "$STRONG_MAIN" && miss "Wrong right loopback — ${S2_LO}/32 required" || good "Right loopback looks OK"
+    grep -q 'leftsubnet=172.16.9.1/32' "$STRONG_MAIN" && miss "Wrong left loopback — ${S1_Dummy}/32 required" || good "Left loopback looks OK"
+    grep -q 'rightsubnet=172.16.9.2/32' "$STRONG_MAIN" && miss "Wrong right loopback — ${S2_Dummy}/32 required" || good "Right loopback looks OK"
   else
     miss "No ${STRONG_MAIN} found"
   fi
@@ -603,7 +2322,7 @@ lab10_check() {
   else
     miss "No ${STRONG_MAIN} found"
   fi
-  if can_ping "$S2_LO"; then
+  if can_ping "$S2_Dummy"; then
     good "ICMP not blocked; loopback ping works"
   else
     miss "ICMP likely blocked; allow ICMP to pass"
@@ -614,16 +2333,1716 @@ lab10_check() {
 do_check() {
   local lab="$1"
   case "$lab" in
-    1) lab1_check ;;
-    2) lab2_check ;;
-    3) lab3_check ;;
-    4) lab4_check ;;
-    5) lab5_check ;;
-    6) lab6_check ;;
-    7) lab7_check ;;
-    8) lab8_check ;;
-    9) lab9_check ;;
-    10) lab10_check ;;
+  1) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  2) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  3) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  4) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  5) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  6) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  7) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  8) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  9) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  10) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
     *) echo -e "${FAIL} Unknown lab $lab"; exit 2 ;;
   esac
 }
@@ -636,345 +4055,1716 @@ print_solution() {
   local lab="$1"
   echo "------ Solutions for Lab ${lab} ------"
   case "$lab" in
-    1)
-      echo "Configure both servers with:"
-      print_netplan_yaml 1
-      print_netplan_yaml 2
-      cat <<'EOS'
+  1) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
 # Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
 sudo apt-get update -y
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
-sudo ufw --force enable
 sudo ufw allow 500/udp
 sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
 
-sudo tee /etc/ipsec.conf >/dev/null <<'CONF'
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
 config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
 include /etc/ipsec.d/*.conf
-CONF
 
-sudo tee /etc/ipsec.d/section6-lab1.conf >/dev/null <<'CONF'
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
 conn s6-lab1
-  type=tunnel
-  keyexchange=ikev2
-  left=10.10.10.1
-  leftid=10.10.10.1
-  leftsubnet=172.16.1.1/32
-  right=10.10.10.2
-  rightid=10.10.10.2
-  rightsubnet=172.16.1.2/32
-  authby=secret
-  ike=aes256-sha2_256-modp2048!
-  esp=aes256-sha2_256!
-  pfs=yes
-  ikelifetime=8h
-  salifetime=1h
-  dpddelay=30s
-  dpdtimeout=120s
-  dpdaction=restart
-  auto=start
-CONF
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
 
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
 sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
-10.10.10.1 10.10.10.2 : PSK "supersecret"
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
 CONF
 sudo chmod 600 /etc/ipsec.secrets
 
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
 sudo systemctl enable ipsec.service
 sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
 
+
+#verify
 ipsec status
 sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
 ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
 EOS
-      ;;
-    2)
-      echo "Configure both servers with:"
-      print_netplan_yaml 1
-      print_netplan_yaml 2
-      cat <<'EOS'
-# Libreswan RSA/cert baseline
+  ;;
+  2) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
 sudo apt-get update -y
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw libnss3-tools openssl
-sudo ufw --force enable
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
 sudo ufw allow 500/udp
 sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
 
-# Initialize NSS DB for Libreswan
-sudo ipsec initnss 2>/dev/null || true
-# Create CA
-openssl req -new -x509 -nodes -newkey rsa:4096 -days 3650 \
-  -subj "/CN=Section6-CA" -keyout /etc/ipsec.d/ca.key -out /etc/ipsec.d/ca.crt
-# Create server1 key+CSR
-openssl req -new -nodes -newkey rsa:3072 \
-  -subj "/CN=10.10.10.1" -keyout /etc/ipsec.d/server1.key -out /etc/ipsec.d/server1.csr
-openssl x509 -req -in /etc/ipsec.d/server1.csr -CA /etc/ipsec.d/ca.crt -CAkey /etc/ipsec.d/ca.key \
-  -CAcreateserial -days 1825 -out /etc/ipsec.d/server1.crt
-# Create server2 key+CSR
-openssl req -new -nodes -newkey rsa:3072 \
-  -subj "/CN=10.10.10.2" -keyout /etc/ipsec.d/server2.key -out /etc/ipsec.d/server2.csr
-openssl x509 -req -in /etc/ipsec.d/server2.csr -CA /etc/ipsec.d/ca.crt -CAkey /etc/ipsec.d/ca.key \
-  -CAcreateserial -days 1825 -out /etc/ipsec.d/server2.crt
 
-# Package to PKCS12 and import to NSS DB (nicknames: server1, server2)
-openssl pkcs12 -export -inkey /etc/ipsec.d/server1.key -in /etc/ipsec.d/server1.crt \
-  -certfile /etc/ipsec.d/ca.crt -out /etc/ipsec.d/server1.p12 -passout pass:
-openssl pkcs12 -export -inkey /etc/ipsec.d/server2.key -in /etc/ipsec.d/server2.crt \
-  -certfile /etc/ipsec.d/ca.crt -out /etc/ipsec.d/server2.p12 -passout pass:
-
-sudo pk12util -i /etc/ipsec.d/server1.p12 -d /etc/ipsec.d -W "" -n "server1"
-sudo pk12util -i /etc/ipsec.d/server2.p12 -d /etc/ipsec.d -W "" -n "server2"
-sudo certutil -A -n "Section6-CA" -t "CT,C,C" -d /etc/ipsec.d -a -i /etc/ipsec.d/ca.crt
-
-# Libreswan config with RSA/cert
-sudo tee /etc/ipsec.conf >/dev/null <<'CONF'
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
 config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
 include /etc/ipsec.d/*.conf
-CONF
 
-sudo tee /etc/ipsec.d/section6-lab2.conf >/dev/null <<'CONF'
-conn s6-lab2
-  type=tunnel
-  keyexchange=ikev2
-  left=10.10.10.1
-  leftid=10.10.10.1
-  leftsubnet=172.16.1.1/32
-  right=10.10.10.2
-  rightid=10.10.10.2
-  rightsubnet=172.16.1.2/32
-  authby=rsasig
-  leftrsasigkey=%cert
-  rightrsasigkey=%cert
-  leftcert=server1
-  rightcert=server2
-  ike=aes256-sha2_256-modp2048!
-  esp=aes256-sha2_256!
-  pfs=yes
-  auto=start
-CONF
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
 
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
 sudo systemctl enable ipsec.service
 sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
 
 ipsec status
-ping -c2 172.16.1.2
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
 EOS
-      ;;
-    3)
-      print_netplan_yaml 1
-      print_netplan_yaml 2
-      cat <<'EOS'
-# Fixes for Troubleshooting 1 (Libreswan)
-sudo sed -i 's/^  rightid=.*/  rightid=10.10.10.2/' /etc/ipsec.d/section6.conf
-sudo sed -i 's/^  ike=.*/  ike=aes256-sha2_256-modp2048!/' /etc/ipsec.d/section6.conf
-sudo sed -i 's/^  esp=.*/  esp=aes256-sha2_256!/' /etc/ipsec.d/section6.conf
-sudo sed -i 's/^  pfs=.*/  pfs=yes/' /etc/ipsec.d/section6.conf
+  ;;
+  3) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
 
-sudo systemctl restart ipsec.service
-ipsec status
-ping -c2 172.16.1.2
-EOS
-      ;;
-    4)
-      print_netplan_yaml 1
-      print_netplan_yaml 2
-      cat <<'EOS'
-# Fixes for Troubleshooting 2 (Libreswan)
-# Use PSK or set up proper RSA certs
-sudo sed -i 's/^  authby=.*/  authby=secret/' /etc/ipsec.d/section6.conf
-sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
-10.10.10.1 10.10.10.2 : PSK "supersecret"
-CONF
-sudo chmod 600 /etc/ipsec.secrets
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
 
-# Unblock IKE ports
-sudo ufw delete deny 500/udp 2>/dev/null || true
-sudo ufw delete deny 4500/udp 2>/dev/null || true
-sudo ufw allow 500/udp
-sudo ufw allow 4500/udp
-
-sudo systemctl restart ipsec.service
-ipsec status
-ping -c2 172.16.1.2
-EOS
-      ;;
-    5)
-      print_netplan_yaml 1
-      print_netplan_yaml 2
-      cat <<'EOS'
-# Fixes for Troubleshooting 3 (Libreswan)
-sudo sed -i 's/^  leftsubnet=.*/  leftsubnet=172.16.1.1\/32/' /etc/ipsec.d/section6.conf
-sudo sed -i 's/^  rightsubnet=.*/  rightsubnet=172.16.1.2\/32/' /etc/ipsec.d/section6.conf
-sudo sed -i 's/^  ike=.*/  ike=aes256-sha2_256-modp2048!/' /etc/ipsec.d/section6.conf
-sudo sed -i 's/^  esp=.*/  esp=aes256-sha2_256!/' /etc/ipsec.d/section6.conf
-sudo sed -i 's/^  pfs=.*/  pfs=yes/' /etc/ipsec.d/section6.conf
-sudo sed -i 's/^  authby=.*/  authby=secret/' /etc/ipsec.d/section6.conf
-
-sudo ufw delete deny 500/udp 2>/dev/null || true
-sudo ufw delete deny 4500/udp 2>/dev/null || true
-sudo ufw allow 500/udp
-sudo ufw allow 4500/udp
-
-sudo systemctl restart ipsec.service
-ipsec status
-ping -c2 172.16.1.2
-EOS
-      ;;
-    6)
-      echo "Configure both servers with:"
-      print_netplan_yaml 1
-      print_netplan_yaml 2
-      cat <<'EOS'
-# StrongSwan PSK baseline
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
 sudo apt-get update -y
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y strongswan ufw
-sudo ufw --force enable
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
 sudo ufw allow 500/udp
 sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
 
-sudo tee /etc/ipsec.conf >/dev/null <<'CONF'
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
 config setup
-  charondebug="ike 1, knl 1, cfg 0"
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
 
-conn s6-lab6
-  keyexchange=ikev2
-  type=tunnel
-  left=10.10.10.1
-  leftid=10.10.10.1
-  leftsubnet=172.16.1.1/32
-  right=10.10.10.2
-  rightid=10.10.10.2
-  rightsubnet=172.16.1.2/32
-  authby=secret
-  ike=aes256-sha2_256-modp2048!
-  esp=aes256-sha2_256!
-  dpdaction=restart
-  dpddelay=30s
-  auto=start
-CONF
 
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
 sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
-10.10.10.1 10.10.10.2 : PSK "supersecret"
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
 CONF
 sudo chmod 600 /etc/ipsec.secrets
 
-sudo systemctl enable strongswan-starter.service
-sudo systemctl restart strongswan-starter.service
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
 
-ipsec statusall
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
 ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
 EOS
-      ;;
-    7)
-      echo "Configure both servers with:"
-      print_netplan_yaml 1
-      print_netplan_yaml 2
-      cat <<'EOS'
-# StrongSwan RSA/cert baseline (ipsec pki)
+  ;;
+  4) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
 sudo apt-get update -y
-sudo DEBIAN_FRONTEND=noninteractive apt-get install -y strongswan ufw
-sudo ufw --force enable
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
 sudo ufw allow 500/udp
 sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
 
-# Create CA and host certs
-mkdir -p /etc/ipsec.d/{cacerts,certs,private}
-ipsec pki --gen --type rsa --size 4096 --outform pem > /etc/ipsec.d/private/ca.key.pem
-ipsec pki --self --ca --lifetime 3650 --in /etc/ipsec.d/private/ca.key.pem \
-  --type rsa --dn "CN=Section6-CA" --outform pem > /etc/ipsec.d/cacerts/ca.crt.pem
 
-ipsec pki --gen --type rsa --size 3072 --outform pem > /etc/ipsec.d/private/server1.key.pem
-ipsec pki --pub --in /etc/ipsec.d/private/server1.key.pem --type rsa \
-  | ipsec pki --issue --lifetime 1825 --cacert /etc/ipsec.d/cacerts/ca.crt.pem \
-  --cakey /etc/ipsec.d/private/ca.key.pem --dn "CN=10.10.10.1" --san 10.10.10.1 \
-  --flag serverAuth --flag ikeIntermediate --outform pem > /etc/ipsec.d/certs/server1.crt.pem
-
-ipsec pki --gen --type rsa --size 3072 --outform pem > /etc/ipsec.d/private/server2.key.pem
-ipsec pki --pub --in /etc/ipsec.d/private/server2.key.pem --type rsa \
-  | ipsec pki --issue --lifetime 1825 --cacert /etc/ipsec.d/cacerts/ca.crt.pem \
-  --cakey /etc/ipsec.d/private/ca.key.pem --dn "CN=10.10.10.2" --san 10.10.10.2 \
-  --flag serverAuth --flag ikeIntermediate --outform pem > /etc/ipsec.d/certs/server2.crt.pem
-
-# StrongSwan RSA config
-sudo tee /etc/ipsec.conf >/dev/null <<'CONF'
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
 config setup
-  charondebug="ike 1, knl 1, cfg 0"
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
 
-conn s6-lab7
-  keyexchange=ikev2
-  type=tunnel
-  left=10.10.10.1
-  leftid=10.10.10.1
-  leftsubnet=172.16.1.1/32
-  leftcert=server1.crt.pem
-  right=10.10.10.2
-  rightid=10.10.10.2
-  rightsubnet=172.16.1.2/32
-  rightcert=server2.crt.pem
-  authby=rsasig
-  ike=aes256-sha2_256-modp2048!
-  esp=aes256-sha2_256!
-  auto=start
-CONF
 
-sudo systemctl enable strongswan-starter.service
-sudo systemctl restart strongswan-starter.service
+include /etc/ipsec.d/*.conf
 
-ipsec statusall
-ping -c2 172.16.1.2
-EOS
-      ;;
-    8)
-      print_netplan_yaml 1
-      print_netplan_yaml 2
-      cat <<'EOS'
-# Fixes for Troubleshooting 4 (StrongSwan)
-# Use PSK or configure RSA certs properly
-sudo sed -i 's/^  authby=.*/  authby=secret/' /etc/ipsec.conf
-sudo sed -i 's/^  ike=.*/  ike=aes256-sha2_256-modp2048!/' /etc/ipsec.conf
-sudo sed -i 's/^  esp=.*/  esp=aes256-sha2_256!/' /etc/ipsec.conf
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
 
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
 sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
-10.10.10.1 10.10.10.2 : PSK "supersecret"
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
 CONF
 sudo chmod 600 /etc/ipsec.secrets
 
-sudo systemctl restart strongswan-starter.service
-ipsec statusall
-ping -c2 172.16.1.2
-EOS
-      ;;
-    9)
-      print_netplan_yaml 1
-      print_netplan_yaml 2
-      cat <<'EOS'
-# Fixes for Troubleshooting 5 (StrongSwan)
-sudo sed -i 's/^  leftid=.*/  leftid=10.10.10.1/' /etc/ipsec.conf
-sudo sed -i 's/^  rightid=.*/  rightid=10.10.10.2/' /etc/ipsec.conf
-sudo sed -i 's/^  leftsubnet=.*/  leftsubnet=172.16.1.1\/32/' /etc/ipsec.conf
-sudo sed -i 's/^  rightsubnet=.*/  rightsubnet=172.16.1.2\/32/' /etc/ipsec.conf
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
 
-sudo systemctl restart strongswan-starter.service
-ipsec statusall
-ping -c2 172.16.1.2
-EOS
-      ;;
-    10)
-      print_netplan_yaml 1
-      print_netplan_yaml 2
-      cat <<'EOS'
-# Fixes for Troubleshooting 6 (StrongSwan)
-sudo sed -i 's/^  ike=.*/  ike=aes256-sha2_256-modp2048!/' /etc/ipsec.conf
-sudo sed -i 's/^  esp=.*/  esp=aes256-sha2_256!/' /etc/ipsec.conf
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
 
-# Unblock ICMP if blocked
-sudo iptables -D INPUT -p icmp -j DROP 2>/dev/null || true
 
-sudo systemctl restart strongswan-starter.service
-ipsec statusall
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
 ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
 EOS
-      ;;
+  ;;
+  5) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  6) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  7) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  8) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  9) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  10) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
     *)
       echo -e "${FAIL} Unknown lab ${lab}"
       ;;
@@ -1032,33 +5822,1032 @@ interactive_menu() {
     echo "q) Quit"
     read -rp "Select option: " opt
     case "$opt" in
-      1)
-        read -rp "Lab (1-10): " lab
-        apply_lab "$lab"
-        read -rp "Press Enter..."
-        ;;
-      2)
-        read -rp "Lab (1-10): " lab
-        do_check "$lab"
-        read -rp "Press Enter..."
-        ;;
-      3)
-        reset_all
-        read -rp "Press Enter..."
-        ;;
-      4)
-        status
-        read -rp "Press Enter..."
-        ;;
-      5)
-        print_list
-        read -rp "Press Enter..."
-        ;;
-      6)
-        read -rp "Lab (1-10): " lab
-        print_solution "$lab"
-        read -rp "Press Enter..."
-        ;;
+  1) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  2) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  3) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  4) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  5) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
+  6) cat <<'EOS'
+#Configure both servers with:
+#server1 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.1/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.1/32
+netplan apply
+
+#server2 netplan
+nano /etc/netplan/section6-server1.yaml
+network:
+  version: 2
+  ethernets:
+    ens4:
+      addresses:
+        - 10.10.10.2/24
+  dummy-devices:
+    dummy0:
+      addresses:
+        - 172.16.1.2/32
+netplan apply
+
+# Libreswan PSK baseline (IKEv2, AES-256/SHA-256, modp2048, PFS)
+sudo apt-get update -y
+sudo DEBIAN_FRONTEND=noninteractive apt-get install -y libreswan ufw
+sudo ufw allow 500/udp
+sudo ufw allow 4500/udp
+sudo ufw allow 22
+sudo ufw --force enable
+
+
+#IPSEC Config
+#Server1
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#Server2
+nano /etc/ipsec.conf
+config setup
+    protostack=netkey
+    plutodebug=\"none\"
+    logfile=/var/log/pluto.log
+
+
+include /etc/ipsec.d/*.conf
+
+#server1
+sudo ip route add 172.16.1.2/32 via 10.10.10.2
+
+#server2
+sudo ip route add 172.16.1.1/32 via 10.10.10.1
+
+
+# Both servers
+sudo sysctl -w net.ipv4.conf.all.send_redirects=0
+sudo sysctl -w net.ipv4.conf.default.send_redirects=0
+sudo tee /etc/sysctl.d/99-libreswan.conf >/dev/null <<'EOF'
+net.ipv4.conf.all.send_redirects=0
+net.ipv4.conf.default.send_redirects=0
+EOF
+sudo sysctl -p /etc/sysctl.d/99-libreswan.conf
+
+
+echo \"net.ipv4.conf.all.rp_filter=0\" | sudo tee /etc/sysctl.d/99-ipsec.conf
+echo \"net.ipv4.conf.default.rp_filter=0\" | sudo tee -a /etc/sysctl.d/99-ipsec.conf
+sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
+
+
+#server1
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.1
+    leftid=10.10.10.1
+    leftsubnet=172.16.1.1/32
+    right=10.10.10.2
+    rightid=10.10.10.2
+    rightsubnet=172.16.1.2/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#server2
+nano /etc/ipsec.d/section6-lab1.conf
+conn s6-lab1
+    type=tunnel
+    ikev2=insist
+    left=10.10.10.2
+    leftid=10.10.10.2
+    leftsubnet=172.16.1.2/32
+    right=10.10.10.1
+    rightid=10.10.10.1
+    rightsubnet=172.16.1.1/32
+    authby=secret
+    ike=aes256-sha256-modp2048
+    esp=aes256-sha256
+    pfs=yes
+    ikelifetime=8h
+    salifetime=1h
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=restart
+    auto=start
+
+#Create PSK Server1
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.1 10.10.10.2 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#Create PSK Server2
+sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
+10.10.10.2 10.10.10.1 : PSK \"supersecret\"
+CONF
+sudo chmod 600 /etc/ipsec.secrets
+
+#restart
+sudo systemctl enable ipsec.service
+sudo systemctl restart ipsec.service
+sudo systemctl status ipsec.service
+
+
+#verify
+ipsec status
+sudo ss -lun | grep -E ':500|:4500' || echo "IKE ports not listening"
+ping -c2 172.16.1.2
+
+#Check counters
+sudo ip -s xfrm state
+
+#Check IPsec Policies
+sudo ip xfrm policy
+
+#More Troubleshooting
+sudo systemctl enable --now ipsec
+sudo systemctl status ipsec
+journalctl -u ipsec -b --no-pager
+
+
+ipsec status
+ipsec whack --status  # low-level pluto status
+ipsec verify          # sanity checks (capabilities, kernel, firewall)
+
+sudo ipsec addconn --checkconfig
+sudo ipsec rereadsecrets
+sudo systemctl restart ipsec
+sudo ipsec status
+EOS
+  ;;
       q|Q)
         exit 0
         ;;
