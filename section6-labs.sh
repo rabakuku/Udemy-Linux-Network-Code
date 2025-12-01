@@ -1,10 +1,16 @@
-
 #!/usr/bin/env bash
 # If not executed by bash (e.g., /bin/sh), re-exec with bash.
 [ -n "$BASH_VERSION" ] || exec /usr/bin/env bash "$0" "$@"
 
 # ============================================================
 # Section 6 — IPsec / StrongSwan Tunnel Labs (Interactive Menu)
+# Labs 1–5: Regular IPsec (Libreswan; no StrongSwan)
+# Labs 6–10: StrongSwan-based
+# - Titles are generic; details appear only in tips/solutions
+# - Config labs (1,2,6,7): apply prints steps (does NOT change system)
+# - Troubleshooting labs (3,4,5,8,9,10): apply writes broken configs & toggles firewall
+# - Loopbacks routed via tunnel; checks include pinging peer loopback
+# - Every solution includes netplan YAML for ens4 + lo
 # ============================================================
 
 # ---- Root check ----
