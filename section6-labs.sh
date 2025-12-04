@@ -1,8 +1,9 @@
 
 #!/usr/bin/env bash
 # If not executed by bash (e.g., /bin/sh), re-exec with bash.
-[ -n "$BASH_VERSION" ] || exec /usr/bin/env bash "$0" "$@"
-
+if [ -z "$BASH_VERSION" ]; then
+  exec /usr/bin/env bash "$0" "$@"
+fi
 # ============================================================
 # Section 6 — IPsec / StrongSwan / WireGuard Tunnel Labs (Interactive Menu)
 # Labs 1: Libreswan PSK (config only)
@@ -31,24 +32,20 @@ trap 'rc=$?; if [[ $rc -ne 0 ]]; then echo -e "\e[31m✗ Error on line $LINENO w
 # --- Constants / Paths ---
 LAB_ROOT="/etc/labs-menu-section6"
 STATE_FILE="${LAB_ROOT}/state"
-
 # Network constants
 IFACE="ens4"
 S1_IF="10.10.10.1"
 S2_IF="10.10.10.2"
 S1_Dummy="172.16.1.1"
 S2_Dummy="172.16.1.2"
-
 # Colors/icons
 GREEN="\e[32m"; RED="\e[31m"; BLUE="\e[34m"; NC="\e[0m"
 OK="${GREEN}✔${NC}"; FAIL="${RED}✗${NC}"; INFO="${BLUE}[i]${NC}"
-
 # Config paths
-LIBRE_MAIN="/etc/ipsec.conf"     # Libreswan starter file
+LIBRE_MAIN="/etc/ipsec.conf"           # Libreswan starter file
 LIBRE_CONN="/etc/ipsec.d/section6.conf" # Per-lab Libreswan conn
 LIBRE_SECRETS="/etc/ipsec.secrets"
-
-STRONG_MAIN="/etc/ipsec.conf"    # StrongSwan starter file
+STRONG_MAIN="/etc/ipsec.conf"          # StrongSwan starter file
 STRONG_SECRETS="/etc/ipsec.secrets"
 STRONG_UNIT="strongswan-starter.service"
 LIBRE_UNIT="ipsec.service"
@@ -223,16 +220,16 @@ sudo ufw --force enable
 # Server1
 nano /etc/ipsec.conf
 config setup
-  protostack=netkey
-  plutodebug="none"
-  logfile=/var/log/pluto.log
+ protostack=netkey
+ plutodebug="none"
+ logfile=/var/log/pluto.log
 include /etc/ipsec.d/*.conf
 # Server2
 nano /etc/ipsec.conf
 config setup
-  protostack=netkey
-  plutodebug="none"
-  logfile=/var/log/pluto.log
+ protostack=netkey
+ plutodebug="none"
+ logfile=/var/log/pluto.log
 include /etc/ipsec.d/*.conf
 # server1
 sudo ip route add 172.16.1.2/32 via 10.10.10.2
@@ -253,45 +250,45 @@ sudo sysctl -p /etc/sysctl.d/99-ipsec.conf
 # server1
 nano /etc/ipsec.d/section6-lab1.conf
 conn s6-lab1
-  type=tunnel
-  ikev2=insist
-  left=10.10.10.1
-  leftid=10.10.10.1
-  leftsubnet=172.16.1.1/32
-  right=10.10.10.2
-  rightid=10.10.10.2
-  rightsubnet=172.16.1.2/32
-  authby=secret
-  ike=aes256-sha256-modp2048
-  esp=aes256-sha256
-  pfs=yes
-  ikelifetime=8h
-  salifetime=1h
-  dpddelay=30
-  dpdtimeout=120
-  dpdaction=restart
-  auto=start
+ type=tunnel
+ ikev2=insist
+ left=10.10.10.1
+ leftid=10.10.10.1
+ leftsubnet=172.16.1.1/32
+ right=10.10.10.2
+ rightid=10.10.10.2
+ rightsubnet=172.16.1.2/32
+ authby=secret
+ ike=aes256-sha256-modp2048
+ esp=aes256-sha256
+ pfs=yes
+ ikelifetime=8h
+ salifetime=1h
+ dpddelay=30
+ dpdtimeout=120
+ dpdaction=restart
+ auto=start
 # server2
 nano /etc/ipsec.d/section6-lab1.conf
 conn s6-lab1
-  type=tunnel
-  ikev2=insist
-  left=10.10.10.2
-  leftid=10.10.10.2
-  leftsubnet=172.16.1.2/32
-  right=10.10.10.1
-  rightid=10.10.10.1
-  rightsubnet=172.16.1.1/32
-  authby=secret
-  ike=aes256-sha256-modp2048
-  esp=aes256-sha256
-  pfs=yes
-  ikelifetime=8h
-  salifetime=1h
-  dpddelay=30
-  dpdtimeout=120
-  dpdaction=restart
-  auto=start
+ type=tunnel
+ ikev2=insist
+ left=10.10.10.2
+ leftid=10.10.10.2
+ leftsubnet=172.16.1.2/32
+ right=10.10.10.1
+ rightid=10.10.10.1
+ rightsubnet=172.16.1.1/32
+ authby=secret
+ ike=aes256-sha256-modp2048
+ esp=aes256-sha256
+ pfs=yes
+ ikelifetime=8h
+ salifetime=1h
+ dpddelay=30
+ dpdtimeout=120
+ dpdaction=restart
+ auto=start
 # PSK on both servers
 sudo tee /etc/ipsec.secrets >/dev/null <<'CONF'
 10.10.10.1 10.10.10.2 : PSK "supersecret"
@@ -325,16 +322,16 @@ print_list(){
   cat <<'EOF'
 Section 6 Labs — IPsec/StrongSwan/WireGuard Tunnels
 1. Scenario One
-2. Troubleshooting 1 (Libreswan)            # was Lab 3
-3. Troubleshooting 2 (Libreswan)            # was Lab 4
-4. Troubleshooting 3 (Libreswan)            # was Lab 5
-5. Scenario Six (StrongSwan PSK)            # was Lab 6
-6. Scenario Seven (StrongSwan RSA/cert)     # was Lab 7
-7. Troubleshooting 4 (StrongSwan)           # was Lab 8
-8. Troubleshooting 5 (StrongSwan)           # was Lab 9
-9. Troubleshooting 6 (StrongSwan)           # was Lab 10
-10. Scenario Ten (WireGuard + IPsec)        # was Lab 11
-11. Troubleshooting 7 (WireGuard + IPsec)   # was Lab 12
+2. Troubleshooting 1 (Libreswan) # was Lab 3
+3. Troubleshooting 2 (Libreswan) # was Lab 4
+4. Troubleshooting 3 (Libreswan) # was Lab 5
+5. Scenario Six (StrongSwan PSK) # was Lab 6
+6. Scenario Seven (StrongSwan RSA/cert) # was Lab 7
+7. Troubleshooting 4 (StrongSwan) # was Lab 8
+8. Troubleshooting 5 (StrongSwan) # was Lab 9
+9. Troubleshooting 6 (StrongSwan) # was Lab 10
+10. Scenario Ten (WireGuard + IPsec) # was Lab 11
+11. Troubleshooting 7 (WireGuard + IPsec) # was Lab 12
 Usage:
   sudo section6-labs.sh <lab#> apply
   sudo section6-labs.sh <lab#> check
@@ -364,20 +361,19 @@ EOF
 
 # --- Lab 2: Libreswan Troubleshooting (former Lab 3) ---
 lab2_apply(){
-  echo "Lab 2 (Troubleshooting): applying wrong tunnel identity + weak proposals."
   ensure_libreswan
   write_file "$LIBRE_CONN" 0644 <<EOF
 conn s6-lab2
   type=tunnel
-  keyexchange=ikev2
+  ikev2=insist
   left=${S1_IF}
   leftid=${S1_IF}
   leftsubnet=${S1_Dummy}/32
   right=${S2_IF}
-  rightid=10.1.2.2   # WRONG: tunnel ID
+  rightid=10.1.2.2
   rightsubnet=${S2_Dummy}/32
   authby=secret
-  ike=aes128-sha2_256-modp1024!  # WRONG/weak
+  ike=aes128-sha2_256-modp1024!
   esp=aes128-sha2_256!
   pfs=yes
   ikelifetime=1h
@@ -392,24 +388,22 @@ ${S1_IF} ${S2_IF} : PSK "supersecret"
 EOF
   enable_service "$LIBRE_UNIT"
   ufw_allow_ipsec
-  echo -e "${OK} Faulty Libreswan config written to ${LIBRE_CONN}."
 }
 
 # --- Lab 3: Libreswan Troubleshooting (former Lab 4) ---
 lab3_apply(){
-  echo "Lab 3 (Troubleshooting): applying RSA auth without certs + blocking IKE ports."
   ensure_libreswan
   write_file "$LIBRE_CONN" 0644 <<EOF
 conn s6-lab3
   type=tunnel
-  keyexchange=ikev2
+  ikev2=insist
   left=${S1_IF}
   leftid=${S1_IF}
   leftsubnet=${S1_Dummy}/32
   right=${S2_IF}
   rightid=${S2_IF}
   rightsubnet=${S2_Dummy}/32
-  authby=rsasig   # WRONG: RSA without certs
+  authby=rsasig
   ike=aes256-sha2_256-modp2048!
   esp=aes256-sha2_256!
   pfs=yes
@@ -420,26 +414,24 @@ EOF
 EOF
   enable_service "$LIBRE_UNIT"
   ufw_block_ipsec
-  echo -e "${OK} Deployed mismatched auth and blocked UDP/500/4500."
 }
 
 # --- Lab 4: Libreswan Troubleshooting (former Lab 5) ---
 lab4_apply(){
-  echo "Lab 4 (Troubleshooting): applying multiple faults + blocking IKE ports."
   ensure_libreswan
   write_file "$LIBRE_CONN" 0644 <<EOF
 conn s6-lab4
   type=tunnel
-  keyexchange=ikev2
+  ikev2=insist
   left=${S1_IF}
   leftid=${S1_IF}
-  leftsubnet=172.16.9.1/32   # WRONG loopback
+  leftsubnet=172.16.9.1/32
   right=${S2_IF}
   rightid=${S2_IF}
-  rightsubnet=172.16.9.2/32  # WRONG loopback
-  authby=rsasig              # WRONG auth (no certs)
-  ike=aes128-sha1-modp1024!  # WRONG/legacy
-  esp=3des-sha1!             # WRONG/legacy
+  rightsubnet=172.16.9.2/32
+  authby=rsasig
+  ike=aes128-sha1-modp1024!
+  esp=3des-sha1!
   pfs=no
   auto=start
 EOF
@@ -448,7 +440,6 @@ ${S1_IF} ${S2_IF} : PSK "supersecret"
 EOF
   enable_service "$LIBRE_UNIT"
   ufw_block_ipsec
-  echo -e "${OK} Faulty config deployed and IKE ports blocked."
 }
 
 # --- Lab 5: StrongSwan PSK (former Lab 6; no changes applied) ---
@@ -478,13 +469,12 @@ EOF
 
 # --- Lab 7: StrongSwan Troubleshooting (former Lab 8) ---
 lab7_apply(){
-  echo "Lab 7 (Troubleshooting StrongSwan): applying RSA auth without certs + weak proposals."
   ensure_strongswan
   write_file "$STRONG_MAIN" 0644 <<EOF
 config setup
   charondebug="ike 1, knl 1, cfg 0"
 conn s6-lab7
-  keyexchange=ikev2
+  ikev2=insist
   type=tunnel
   left=${S1_IF}
   leftid=${S1_IF}
@@ -492,9 +482,9 @@ conn s6-lab7
   right=${S2_IF}
   rightid=${S2_IF}
   rightsubnet=${S2_Dummy}/32
-  authby=rsasig   # WRONG auth (no certs)
-  ike=aes128-sha1-modp1024!  # WRONG/weak
-  esp=aes128-sha1!           # WRONG
+  authby=rsasig
+  ike=aes128-sha1-modp1024!
+  esp=aes128-sha1!
   auto=start
 EOF
   write_file "$STRONG_SECRETS" 0600 <<'EOF'
@@ -502,25 +492,23 @@ EOF
 EOF
   enable_service "$STRONG_UNIT"
   ufw_allow_ipsec
-  echo -e "${OK} StrongSwan with mismatched auth/crypto deployed."
 }
 
 # --- Lab 8: StrongSwan Troubleshooting (former Lab 9) ---
 lab8_apply(){
-  echo "Lab 8 (Troubleshooting StrongSwan): applying wrong loopbacks + wrong IDs."
   ensure_strongswan
   write_file "$STRONG_MAIN" 0644 <<EOF
 config setup
   charondebug="ike 1, knl 1, cfg 0"
 conn s6-lab8
-  keyexchange=ikev2
+  ikev2=insist
   type=tunnel
   left=${S1_IF}
-  leftid=10.1.2.1     # WRONG ID
-  leftsubnet=172.16.9.1/32 # WRONG loopback
+  leftid=10.1.2.1
+  leftsubnet=172.16.9.1/32
   right=${S2_IF}
-  rightid=10.1.2.2    # WRONG ID
-  rightsubnet=172.16.9.2/32 # WRONG loopback
+  rightid=10.1.2.2
+  rightsubnet=172.16.9.2/32
   authby=secret
   ike=aes256-sha2_256-modp2048!
   esp=aes256-sha2_256!
@@ -531,18 +519,16 @@ ${S1_IF} ${S2_IF} : PSK "supersecret"
 EOF
   enable_service "$STRONG_UNIT"
   ufw_allow_ipsec
-  echo -e "${OK} StrongSwan config with wrong IDs/loopbacks written."
 }
 
 # --- Lab 9: StrongSwan Troubleshooting (former Lab 10) ---
 lab9_apply(){
-  echo "Lab 9 (Troubleshooting StrongSwan): applying weak proposals + blocking ICMP."
   ensure_strongswan
   write_file "$STRONG_MAIN" 0644 <<EOF
 config setup
   charondebug="ike 1, knl 1, cfg 0"
 conn s6-lab9
-  keyexchange=ikev2
+  ikev2=insist
   type=tunnel
   left=${S1_IF}
   leftid=${S1_IF}
@@ -551,8 +537,8 @@ conn s6-lab9
   rightid=${S2_IF}
   rightsubnet=${S2_Dummy}/32
   authby=secret
-  ike=aes128-sha1-modp1024!  # WRONG/weak
-  esp=aes128-sha1!           # WRONG
+  ike=aes128-sha1-modp1024!
+  esp=aes128-sha1!
   auto=start
 EOF
   write_file "$STRONG_SECRETS" 0600 <<EOF
@@ -561,7 +547,6 @@ EOF
   enable_service "$STRONG_UNIT"
   ufw_allow_ipsec
   block_icmp
-  echo -e "${OK} StrongSwan with weak crypto and ICMP blocked applied."
 }
 
 # --- Lab 10: WireGuard + IPsec transport (former Lab 11; Config, no changes applied) ---
@@ -580,7 +565,6 @@ EOF
 
 # --- Lab 11: WireGuard + IPsec transport (former Lab 12; Troubleshooting) ---
 lab11_apply(){
-  echo "Lab 11 (Troubleshooting): Broken WireGuard + IPsec config (wrong peer key, wrong PSK, UDP/51820 blocked)."
   q apt-get update -y
   DEBIAN_FRONTEND=noninteractive apt-get install -y wireguard strongswan ufw
   # Generate Server1 WireGuard keys
@@ -592,7 +576,7 @@ lab11_apply(){
   S1_PRIV=$(wg genkey)
   S1_PUB=$(echo "$S1_PRIV" | wg pubkey)
   echo "$S1_PRIV" >/etc/wireguard/keys/server1_private.key
-  echo "$S1_PUB"  >/etc/wireguard/keys/server1_public.key
+  echo "$S1_PUB" >/etc/wireguard/keys/server1_public.key
   chmod 600 /etc/wireguard/keys/server1_private.key
   chmod 644 /etc/wireguard/keys/server1_public.key
   # Broken WireGuard config: local key OK, peer key WRONG
@@ -610,7 +594,7 @@ EOF
   cat > /etc/ipsec.conf <<EOF
 config setup
 conn wg-ipsec
-  keyexchange=ikev2
+  ikev2=insist
   type=transport
   left=${S1_IF}
   right=${S2_IF}
@@ -628,7 +612,6 @@ EOF
   ufw deny 51820/udp || true
   # Do not start wg0 automatically—leave it for students
   enable_service "$STRONG_UNIT"
-  echo -e "${OK} Broken WG+IPsec applied (local keys generated, wrong peer key, wrong PSK, UDP/51820 denied)."
 }
 
 apply_lab(){
@@ -645,7 +628,7 @@ apply_lab(){
     9)  lab9_apply ;;
     10) lab10_apply ;;
     11) lab11_apply ;;
-    *)  echo -e "${FAIL} Unknown lab $lab"; exit 2 ;;
+    *) echo -e "${FAIL} Unknown lab $lab"; exit 2 ;;
   esac
   save_state lab "$lab"
   echo -e "${OK} Applied Lab $lab"
@@ -661,7 +644,7 @@ lab1_check(){
   can_ping "$S2_Dummy" && good "peer loopback (${S2_Dummy}) reachable" || miss "Cannot ping peer loopback"
   can_ping "$S1_Dummy" && good "local loopback (${S1_Dummy}) reachable" || miss "Cannot ping local loopback"
   if has_cmd ss; then
-    ss -lun | grep -q ':500'  && good "UDP/500 listening"  || miss "UDP/500 not listening"
+    ss -lun | grep -q ':500'  && good "UDP/500 listening" || miss "UDP/500 not listening"
     ss -lun | grep -q ':4500' && good "UDP/4500 listening" || miss "UDP/4500 not listening"
   else
     good "Skipping port check (ss not available)"
@@ -706,11 +689,11 @@ lab3_check(){
 lab4_check(){
   begin_check
   if [[ -f "$LIBRE_CONN" ]]; then
-    grep -q 'leftsubnet=172.16.9.1/32' "$LIBRE_CONN"  && miss "Wrong left loopback — ${S1_Dummy}/32 required" || good "Left loopback looks OK"
+    grep -q 'leftsubnet=172.16.9.1/32' "$LIBRE_CONN" && miss "Wrong left loopback — ${S1_Dummy}/32 required" || good "Left loopback looks OK"
     grep -q 'rightsubnet=172.16.9.2/32' "$LIBRE_CONN" && miss "Wrong right loopback — ${S2_Dummy}/32 required" || good "Right loopback looks OK"
-    grep -q 'ike=aes128' "$LIBRE_CONN"                   && miss "Weak IKE proposal" || good "IKE proposal looks OK"
-    grep -q 'esp=3des' "$LIBRE_CONN"                     && miss "Legacy ESP cipher (3DES)" || good "ESP cipher looks OK"
-    grep -q 'authby=rsasig' "$LIBRE_CONN"                && miss "Auth mismatch (RSA w/o certs)" || good "Auth method looks OK"
+    grep -q 'ike=aes128' "$LIBRE_CONN" && miss "Weak IKE proposal" || good "IKE proposal looks OK"
+    grep -q 'esp=3des' "$LIBRE_CONN" && miss "Legacy ESP cipher (3DES)" || good "ESP cipher looks OK"
+    grep -q 'authby=rsasig' "$LIBRE_CONN" && miss "Auth mismatch (RSA w/o certs)" || good "Auth method looks OK"
   else
     miss "No ${LIBRE_CONN} found"
   fi
@@ -725,7 +708,7 @@ lab5_check(){
   begin_check
   can_ping "$S2_Dummy" && good "peer loopback (${S2_Dummy}) reachable" || miss "Cannot ping peer loopback"
   if has_cmd ss; then
-    ss -lun | grep -q ':500'  && good "UDP/500 listening"  || miss "UDP/500 not listening"
+    ss -lun | grep -q ':500'  && good "UDP/500 listening" || miss "UDP/500 not listening"
     ss -lun | grep -q ':4500' && good "UDP/4500 listening" || miss "UDP/4500 not listening"
   else
     good "Skipping port check (ss not available)"
@@ -745,8 +728,8 @@ lab7_check(){
   begin_check
   if [[ -f "$STRONG_MAIN" ]]; then
     grep -q 'authby=rsasig' "$STRONG_MAIN" && miss "RSA selected without certs — fix to PSK or configure certs" || good "Auth not mismatched"
-    grep -q 'ike=aes128' "$STRONG_MAIN"    && miss "StrongSwan IKE uses AES-128; fix to AES-256 + modp2048" || good "IKE proposal looks OK"
-    grep -q 'esp=aes128' "$STRONG_MAIN"    && miss "StrongSwan ESP uses AES-128; fix to AES-256" || good "ESP proposal looks OK"
+    grep -q 'ike=aes128' "$STRONG_MAIN" && miss "StrongSwan IKE uses AES-128; fix to AES-256 + modp2048" || good "IKE proposal looks OK"
+    grep -q 'esp=aes128' "$STRONG_MAIN" && miss "StrongSwan ESP uses AES-128; fix to AES-256" || good "ESP proposal looks OK"
   else
     miss "No ${STRONG_MAIN} found"
   fi
@@ -757,9 +740,9 @@ lab7_check(){
 lab8_check(){
   begin_check
   if [[ -f "$STRONG_MAIN" ]]; then
-    grep -q 'leftid=10.1.2.1'     "$STRONG_MAIN" && miss "Wrong left ID — use ${S1_IF} or proper identity" || good "Left ID looks OK"
-    grep -q 'rightid=10.1.2.2'    "$STRONG_MAIN" && miss "Wrong right ID — use ${S2_IF}" || good "Right ID looks OK"
-    grep -q 'leftsubnet=172.16.9.1/32'  "$STRONG_MAIN" && miss "Wrong left loopback — ${S1_Dummy}/32 required" || good "Left loopback looks OK"
+    grep -q 'leftid=10.1.2.1' "$STRONG_MAIN" && miss "Wrong left ID — use ${S1_IF} or proper identity" || good "Left ID looks OK"
+    grep -q 'rightid=10.1.2.2' "$STRONG_MAIN" && miss "Wrong right ID — use ${S2_IF}" || good "Right ID looks OK"
+    grep -q 'leftsubnet=172.16.9.1/32' "$STRONG_MAIN" && miss "Wrong left loopback — ${S1_Dummy}/32 required" || good "Left loopback looks OK"
     grep -q 'rightsubnet=172.16.9.2/32' "$STRONG_MAIN" && miss "Wrong right loopback — ${S2_Dummy}/32 required" || good "Right loopback looks OK"
   else
     miss "No ${STRONG_MAIN} found"
@@ -822,7 +805,7 @@ do_check(){
     9)  lab9_check ;;
     10) lab10_check ;;
     11) lab11_check ;;
-    *)  echo -e "${FAIL} Unknown lab $lab"; exit 2 ;;
+    *) echo -e "${FAIL} Unknown lab $lab"; exit 2 ;;
   esac
 }
 
@@ -833,15 +816,15 @@ print_solution(){
   local lab="$1"
   echo "------ Solutions for Lab ${lab} ------"
   case "$lab" in
-    1) print_solution_block ;;
-    2) print_solution_block ;;  # troubleshooting guidance is covered by baseline + fix-ups in checks
-    3) print_solution_block ;;
-    4) print_solution_block ;;
-    5) print_solution_block ;;
-    6) print_solution_block ;;
-    7) print_solution_block ;;
-    8) print_solution_block ;;
-    9) print_solution_block ;;
+    1)  print_solution_block ;;
+    2)  print_solution_block ;; # baseline guidance + fix-ups in checks
+    3)  print_solution_block ;;
+    4)  print_solution_block ;;
+    5)  print_solution_block ;;
+    6)  print_solution_block ;;
+    7)  print_solution_block ;;
+    8)  print_solution_block ;;
+    9)  print_solution_block ;;
     10)
       cat <<'EOS'
 # WireGuard + IPsec Transport — Scenario
@@ -874,7 +857,7 @@ sudo systemctl start wg-quick@wg0
 /etc/ipsec.conf
 config setup
 conn wg-ipsec
-  keyexchange=ikev2
+  ikev2=insist
   type=transport
   left=10.10.10.1
   right=10.10.10.2
@@ -920,7 +903,7 @@ EOS
       ;;
     *) echo -e "${FAIL} Unknown lab ${lab}" ;;
   esac
-  echo "--------------------------------------"
+  echo "-----------------------------------------------------------"
 }
 
 # ============================================================
@@ -945,8 +928,8 @@ status(){
   echo -e "${INFO} Current Lab: ${lab}"
   echo -e "${INFO} Libreswan unit: ${LIBRE_UNIT} — $(systemctl is-active "${LIBRE_UNIT}" 2>/dev/null || echo inactive)"
   echo -e "${INFO} StrongSwan unit: ${STRONG_UNIT} — $(systemctl is-active "${STRONG_UNIT}" 2>/dev/null || echo inactive)"
-  echo -e "${INFO} Libreswan conn file: ${LIBRE_CONN} $([[ -f "${LIBRE_CONN}" ]] && echo '[present]' || echo '[missing]')"
-  echo -e "${INFO} StrongSwan conf: ${STRONG_MAIN} $([[ -f "${STRONG_MAIN}" ]] && echo '[present]' || echo '[missing]')"
+  echo -e "${INFO} Libreswan conn file: ${LIBRE_CONN} $( [[ -f "${LIBRE_CONN}" ]] && echo '[present]' || echo '[missing]' )"
+  echo -e "${INFO} StrongSwan conf: ${STRONG_MAIN} $( [[ -f "${STRONG_MAIN}" ]] && echo '[present]' || echo '[missing]' )"
   if has_cmd ufw; then
     echo -e "${INFO} UFW status:"; ufw status || true
   else
@@ -973,14 +956,14 @@ interactive_menu(){
     echo "q) Quit"
     read -rp "Select option: " opt
     case "$opt" in
-      1)  read -rp "Lab (1-11): " lab; apply_lab "$lab"; read -rp "Press Enter..." ;;
-      2)  read -rp "Lab (1-11): " lab; do_check "$lab"; read -rp "Press Enter..." ;;
-      3)  reset_all; read -rp "Press Enter..." ;;
-      4)  status; read -rp "Press Enter..." ;;
-      5)  print_list; read -rp "Press Enter..." ;;
-      6)  read -rp "Lab (1-11): " lab; print_solution "$lab"; read -rp "Press Enter..." ;;
+      1) read -rp "Lab (1-11): " lab; apply_lab "$lab"; read -rp "Press Enter..." ;;
+      2) read -rp "Lab (1-11): " lab; do_check "$lab"; read -rp "Press Enter..." ;;
+      3) reset_all; read -rp "Press Enter..." ;;
+      4) status; read -rp "Press Enter..." ;;
+      5) print_list; read -rp "Press Enter..." ;;
+      6) read -rp "Lab (1-11): " lab; print_solution "$lab"; read -rp "Press Enter..." ;;
       q|Q) exit 0 ;;
-      *)  echo "Invalid selection"; sleep 1 ;;
+      *) echo "Invalid selection"; sleep 1 ;;
     esac
   done
 }
@@ -1007,6 +990,9 @@ main(){
   case "$2" in
     apply) apply_lab "$lab" ;;
     check) do_check "$lab" ;;
-    *)     echo -e "${FAIL} Use: apply|check"; exit 2 ;;
+    *) echo -e "${FAIL} Use: apply|check"; exit 2 ;;
   esac
 }
+
+# --- Invoke main ---
+main "$@"
